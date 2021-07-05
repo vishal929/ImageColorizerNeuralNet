@@ -48,9 +48,73 @@ void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* b
     // now the result black and white image should be stored in the host bwImage pointer
 }
 
-// gpu kernel to do a dot product between two vectors -> this will be used in evaluating weights for our function in the neural net
-__global__ void vectorDot() {
+// gpu kernel to do a dot product between two vectors -> this will be used in evaluating weights for our functions in the neural net
+// although a cpu can probably handle vector dots for relatively decent vector sizes during gradient descent training
+__global__ void vectorDot(double* weights, double* input, double* result, int length) {
+   // shared memory for add-reduce
+    __shared__ double toReduce[256];
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    // placing a product into shared memory 
+    for (int i = tid; i < length; i += gridDim.x * blockDim.x) {
+        toReduce[i] = weights[i] * input[i];
+    }
+    // need to sync threads before add reduce
+    __syncthreads();
+    // add reduce and then atomic add into global memory
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            toReduce[tid] += toReduce[tid + s];
+        }
+        __syncthreads();
+    }
+    // atomic add into global memory
+    if (tid == 0) {         
+        atomicAdd(toReduce, result[0]);
+    }
+}
 
+//idea here is to associate each pixel with some patch -> will aid in feature detection
+// if the pixel is on an edge, we just fill the rest of the patch with black
+__global__ void getPatches(double* imagePixels, double** imagePatches, int rowDim, int colDim) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int maxIndex = rowDim * colDim;
+    for (int i = tid; i < maxIndex; i += gridDim.x * blockDim.x) {
+        // filling the associated patch array in global memory
+        int row = tid / colDim;
+        int col = tid - (row * colDim);
+        for (int j = row-4;j != row+4;j++) {
+            for (int z = col-4; z != col+4; z++) {
+                // 9x9 patch of pixels will be considered for now
+                if (j<0 || j>= rowDim || z<0 || z>=colDim ) {
+                    //then the pixel in the loop is out of bounds, we will stick in black scaled pixel
+                    imagePatches[i][(9*(j-row+4)) + (z-col+4)] = 1;
+                }
+                else {
+                    // then we copy the pixel value
+                    imagePatches[i][(9*(j-row+4)) + (z-col+4)] = imagePixels[(rowDim * j) + z];
+                }
+            }
+        }
+    }
+}
+
+
+// idea here is to take our input, apply the weights to every input pixel, and then modify the result buffers, we will use sigmoid for now
+__global__ void evaluateModel(double** inputPatches, double* weightsR, double* weightsG, double* weightsB, int numWeights, int* resultR, int* resultG, int* resultB, int rowDim, int colDim) {   
+    // each thread handles a single pixel scaled value 
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int i = tid;i < rowDim * colDim; i += gridDim.x * blockDim.x) {
+        //
+    }
+}
+
+// gpu kernel to scale the input pixels to be normalized
+__global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, int colDim) {
+    int maxDim = rowDim * colDim;
+    for (int i = blockDim.x * blockIdx.x + threadIdx.x; i < maxDim; i += gridDim.x * blockDim.x) {
+        // max value is 255, so we just divide the input pixel value by 255
+        outputValues[i] = ((double)(inputPixels[i])) / 255;
+    }
 }
 
 // calculating the error between a generated color image and the actual color image
