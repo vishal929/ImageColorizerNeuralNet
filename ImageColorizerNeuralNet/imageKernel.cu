@@ -82,16 +82,16 @@ __global__ void getPatches(double* imagePixels, double** imagePatches, int rowDi
         // filling the associated patch array in global memory
         int row = tid / colDim;
         int col = tid - (row * colDim);
-        for (int j = row-4;j != row+4;j++) {
-            for (int z = col-4; z != col+4; z++) {
-                // 9x9 patch of pixels will be considered for now
+        for (int j = row-30;j != row+30;j++) {
+            for (int z = col-30; z != col+30; z++) {
+                // 31x31 patch of pixels will be considered for now
                 if (j<0 || j>= rowDim || z<0 || z>=colDim ) {
                     //then the pixel in the loop is out of bounds, we will stick in black scaled pixel
-                    imagePatches[i][(9*(j-row+4)) + (z-col+4)] = 1;
+                    imagePatches[i][(31*(j-row+30)) + (z-col+30)] = 1;
                 }
                 else {
                     // then we copy the pixel value
-                    imagePatches[i][(9*(j-row+4)) + (z-col+4)] = imagePixels[(rowDim * j) + z];
+                    imagePatches[i][(31*(j-row+30)) + (z-col+30)] = imagePixels[(rowDim * j) + z];
                 }
             }
         }
