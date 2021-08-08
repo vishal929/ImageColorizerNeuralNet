@@ -47,39 +47,85 @@ void blackAndWhiteCreation(char* colorImageName, char* outputName) {
 // returns a pointer to the converted image
 // todo: possibly make use of pthreads to speed this up? 
 void convertColorImageTo4K(char* colorImageName, char* outputName) {
-	// (4k is 3480 x 2160)
+	// (4k is 3840 x 2160)
 	// black pixel value is 0 for red, green, and blue	
 	// allocating memory for our new image data
 	CImg<int> testImage(colorImageName);
 	int* colorR = testImage.data();
 	int* colorG = colorR + (testImage.height() * testImage.width());
 	int* colorB = colorG + (testImage.height() * testImage.width());
-	const int targetRes = 3480 * 2160;
+	const int targetRes = 3840 * 2160;
 	int* newR = (int*) malloc(sizeof(int)*targetRes);
 	int* newG = (int*) malloc(sizeof(int)*targetRes);
 	int* newB = (int*) malloc(sizeof(int)*targetRes);
+	int* totalBuffer = (int*)malloc(sizeof(int) * targetRes * 3);
 	printf("width is %d and height is %d\n", testImage.width(), testImage.height());
-	for (int i = 0; i < 2160; i++) {
-		for (int j = 0; j < 3480; j++) {
+	int totalBufferCount = 0;
+	/* for (int i = 0; i < 2160; i++) {
+		for (int j = 0; j < 3840; j++) {
 			// printf("i value: %d --> j value: %d \n", i, j);
 			if (i >= testImage.height() || j >= testImage.width()) {
 				// then this pixel will be black for all channels
-				newR[(i * 3480) + j] = 0;
-				newG[(i * 3480) + j] = 0;
-				newB[(i * 3480) + j] = 0;
+				newR[(i * 3840) + j] = 0;
+				newG[(i * 3840) + j] = 0;
+				newB[(i * 3840) + j] = 0;
+				totalBuffer[totalBufferCount] = 0;
+				totalBufferCount++;
 			}
 			else {
 				// then this pixel is just the same as the original
-				newR[(i * 3480) + j] = colorR[(i*testImage.width())+j];
-				newG[(i * 3480) + j] = colorG[(i*testImage.width())+j];
-				newB[(i * 3480) + j] = colorB[(i*testImage.width())+j];
+				newR[(i * 3840) + j] = colorR[(i*testImage.width())+j];
+				newG[(i * 3840) + j] = colorG[(i*testImage.width())+j];
+				newB[(i * 3840) + j] = colorB[(i*testImage.width())+j];
+				totalBuffer[totalBufferCount] = colorR[(i * testImage.width()) + j];
+				totalBufferCount++;
+			}
+		}
+	} 
+	for (int i = 0; i < 2160; i++) {
+		for (int j = 0; j < 3840; j++) {
+			// printf("i value: %d --> j value: %d \n", i, j);
+			if (i >= testImage.height() || j >= testImage.width()) {
+				// then this pixel will be black for all channels
+				totalBuffer[totalBufferCount] = 0;
+				totalBufferCount++;
+			}
+			else {
+				// then this pixel is just the same as the original
+				totalBuffer[totalBufferCount] = colorG[(i * testImage.width()) + j];
+				totalBufferCount++;
 			}
 		}
 	}
+	for (int i = 0; i < 2160; i++) {
+		for (int j = 0; j < 3840; j++) {
+			// printf("i value: %d --> j value: %d \n", i, j);
+			if (i >= testImage.height() || j >= testImage.width()) {
+				// then this pixel will be black for all channels
+				totalBuffer[totalBufferCount] = 0;
+				totalBufferCount++;
+			}
+			else {
+				// then this pixel is just the same as the original
+				totalBuffer[totalBufferCount] = colorB[(i * testImage.width()) + j];
+				totalBufferCount++;
+			}
+		}
+	} */	
+    makeColorImage4kWrapper(colorR, colorG, colorB, newR, newG, newB, testImage.height(), testImage.width());
+	
+	// memcpy to stitch everything together
+	
+	memcpy(totalBuffer, newR, sizeof(int) * 3840 * 2160);
+	memcpy(totalBuffer + (3840*2160), newG, sizeof(int) * 3840 * 2160);
+	memcpy(totalBuffer + (2*3840*2160), newB, sizeof(int) * 3840 * 2160);
 
-	// creating the new image
-	CImg<int> scaledColorImage(3840,2160,1,3);
+	// creating the new image 
+	CImg<int> scaledColorImage(totalBuffer, 3840,2160,1,3);
 	// filling the image
+	/*
+	scaledColorImage.fillC()
+	
 	for (int i = 0; i < targetRes; i++) {
 		scaledColorImage.fill(newR[i]);
 	}
@@ -88,12 +134,11 @@ void convertColorImageTo4K(char* colorImageName, char* outputName) {
 	}
 	for (int i = 0; i < targetRes; i++) {
 		scaledColorImage.fill(newB[i]);
-	}
+	} */
 	scaledColorImage.save(outputName);
 	free(newR);
 	free(newG);
 	free(newB);
-
 }
 
 // (same as above but for black and white images

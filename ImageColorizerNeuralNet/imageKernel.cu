@@ -53,8 +53,8 @@ __global__ void makeColorImage4K(int* colorR, int* colorG, int* colorB, int* new
     // looping through every pixel and applying the check
     const int resolution = 3840 * 2160;
     for (int i = tid; i < resolution; i += blockDim.x * gridDim.x) {
-        int rowNum = i % 3840;
-        int colNum = i - (rowNum * 3840);
+        int rowNum = i / 3840;
+        int colNum = i % 3840;
         if (rowNum >= rowDim || colNum >= colDim) {
             // then this is not part of the original image and should be set to black
             newR[i] = 0;
@@ -72,7 +72,37 @@ __global__ void makeColorImage4K(int* colorR, int* colorG, int* colorB, int* new
 
 // wrapper for converting a color image to 4k
 void makeColorImage4kWrapper(int* colorR, int* colorG, int* colorB, int* newR, int* newG,  int* newB, int rowDim, int colDim) {
-
+    // first allocating gpu memory
+    int* deviceR, * deviceG, * deviceB, * deviceNewR, * deviceNewG, * deviceNewB;
+    cudaMalloc(&deviceR, sizeof(int) * rowDim * colDim);
+    cudaMalloc(&deviceG, sizeof(int) * rowDim * colDim);
+    cudaMalloc(&deviceB, sizeof(int) * rowDim * colDim);
+    cudaMalloc(&deviceNewR, sizeof(int) * 3840 * 2160);
+    cudaMalloc(&deviceNewG, sizeof(int) * 3840 * 2160);
+    cudaMalloc(&deviceNewB, sizeof(int) * 3840 * 2160);
+    // copying from host to device
+    cudaMemcpy(deviceR, colorR, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    // calling the kernel
+    makeColorImage4K << <3000, 256>> > (deviceR, deviceG, deviceB, deviceNewR, deviceNewG, deviceNewB, rowDim, colDim);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("%s\n", cudaGetErrorString(err));
+    }
+    cudaDeviceSynchronize();
+    // copying result to host mem
+    cudaMemcpy(newR, deviceNewR, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
+    cudaMemcpy(newG, deviceNewG, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
+    cudaMemcpy(newB, deviceNewB, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
+    // freeing allocated gpu memory
+    cudaFree(deviceR);
+    cudaFree(deviceG);
+    cudaFree(deviceB);
+    cudaFree(deviceNewR);
+    cudaFree(deviceNewG);
+    cudaFree(deviceNewB);
+    // now the result arrays should be stored in the newR, newG, and newB pointers
 }
 
 // gpu kernel to do a dot product between two vectors -> this will be used in evaluating weights for our functions in the neural net
