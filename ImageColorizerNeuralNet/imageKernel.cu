@@ -105,6 +105,48 @@ void makeColorImage4kWrapper(int* colorR, int* colorG, int* colorB, int* newR, i
     // now the result arrays should be stored in the newR, newG, and newB pointers
 }
 
+// function to scale a black and white image to 4k resolution -> extra pixels are just black
+__global__ void makeBlackWhiteImage4K(int* bwValues, int* newBWValues, int rowDim, int colDim) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    // looping through every pixel and applying the check
+    const int resolution = 3840 * 2160;
+    for (int i = tid; i < resolution; i += blockDim.x * gridDim.x) {
+        int rowNum = i / 3840;
+        int colNum = i % 3840;
+        if (rowNum >= rowDim || colNum >= colDim) {
+            // then this is not part of the original image and should be set to black
+            newBWValues[i] = 0;
+        }
+        else {
+            // then we transfer the greyscale value of the original image
+            newBWValues[i] = bwValues[(rowNum * colDim) + colNum];
+        }
+    }
+}
+
+// wrapper function for scaling a black and white image to 4k
+void makeBlackWhiteImage4KWrapper(int* bwValues, int* newBWValues, int rowDim, int colDim) {
+    // first allocating gpu memory
+    int* deviceBWValues, * deviceNewBWValues;
+    cudaMalloc(&deviceBWValues, sizeof(int) * rowDim * colDim);
+    cudaMalloc(&deviceNewBWValues, sizeof(int) * 3840 * 2160);
+    // copying from host to device
+    cudaMemcpy(deviceBWValues, bwValues, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    // calling the kernel
+    makeBlackWhiteImage4K << <3000, 256>> > (deviceBWValues, deviceNewBWValues, rowDim, colDim);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("%s\n", cudaGetErrorString(err));
+    }
+    cudaDeviceSynchronize();
+    // copying result to host mem
+    cudaMemcpy(newBWValues, deviceNewBWValues, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
+    // freeing allocated gpu memory
+    cudaFree(deviceNewBWValues);
+    cudaFree(deviceBWValues);
+    // now the result array should be stored in newBWValues
+}
+
 // gpu kernel to do a dot product between two vectors -> this will be used in evaluating weights for our functions in the neural net
 // although a cpu can probably handle vector dots for relatively decent vector sizes during gradient descent training
 __global__ void vectorDot(double* weights, double* input, double* result, int length) {
