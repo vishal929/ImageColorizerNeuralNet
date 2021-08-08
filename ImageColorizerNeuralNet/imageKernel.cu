@@ -1,7 +1,6 @@
 ﻿
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "device_atomic_functions.h"
 
 #include <stdio.h>
 #include <cuda/std/cmath>
@@ -46,6 +45,34 @@ void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* b
     cudaFree(deviceB);
     cudaFree(deviceBWImage);
     // now the result black and white image should be stored in the host bwImage pointer
+}
+
+// purpose of this kernel is to scale an input color image to 4k
+__global__ void makeColorImage4K(int* colorR, int* colorG, int* colorB, int* newR, int* newG, int* newB, int rowDim, int colDim) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    // looping through every pixel and applying the check
+    const int resolution = 3840 * 2160;
+    for (int i = tid; i < resolution; i += blockDim.x * gridDim.x) {
+        int rowNum = i % 3840;
+        int colNum = i - (rowNum * 3840);
+        if (rowNum >= rowDim || colNum >= colDim) {
+            // then this is not part of the original image and should be set to black
+            newR[i] = 0;
+            newG[i] = 0;
+            newB[i] = 0;
+        }
+        else {
+            // then we transfer the color of the original image
+            newR[i] = colorR[(rowNum * colDim) + colNum];
+            newG[i] = colorG[(rowNum * colDim) + colNum];
+            newB[i] = colorB[(rowNum * colDim) + colNum];
+        }
+    }
+}
+
+// wrapper for converting a color image to 4k
+void makeColorImage4kWrapper(int* colorR, int* colorG, int* colorB, int* newR, int* newG,  int* newB, int rowDim, int colDim) {
+
 }
 
 // gpu kernel to do a dot product between two vectors -> this will be used in evaluating weights for our functions in the neural net
