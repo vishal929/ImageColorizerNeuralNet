@@ -12,13 +12,14 @@ using namespace cimg_library;
 void blackAndWhiteCreation(char* colorImageName, char* outputName);
 void convertColorImageTo4K(char* colorImageName, char* outputName);
 void convertBWImageTo4k(char* blackWhiteName, char* outputName);
+void showImageFromPatch(char* blackWhiteImage, char* outputPatchName);
 
 int main(int argc, char* argv[]) {
 	// testing if we can load the testData jpg and then print out stuff about it using the CImg library and imagemagick
 	blackAndWhiteCreation("testData.jpg", "blackAndWhite.jpg");
 	convertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
 	convertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
-	
+	showImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
 	return 0;
 }
 
@@ -151,4 +152,34 @@ void convertBWImageTo4k(char* blackWhiteName, char* outputName) {
 	// making the new image
 	CImg<int> resultImage(newBWValues, 3840, 2160);
 	resultImage.save(outputName);
+}
+
+// grabs a patch and creates an image from it (just for testing patch grabbing from a bw image with regular feature set)
+void showImageFromPatch(char* blackWhiteImage, char* outputPatchName) {
+	//setting patch size
+	int patchSize = 301;
+	// setting pixel location
+	int pixelRow = 500;
+	int pixelCol = 500;
+	// grabbing the initial image
+	CImg<double> testImage(blackWhiteImage);
+	// grabbing the raw data
+	double* bwValues = testImage.data();
+	// allocating memory for the patch
+	double* patch = (double*)malloc(sizeof(double) * patchSize * patchSize);
+	// calling kernel wrapper
+	getPatchWrapper(bwValues, patch, 3840, 2160, patchSize, 1, pixelRow, pixelCol);
+	// constructing image from the patch
+	CImg<double> resultImage(patch, patchSize, patchSize);
+	resultImage.save(outputPatchName);
+	// asserting that the output values are the exact same as the inner values
+	for (int i = pixelRow - (patchSize/2); i < pixelRow+ (patchSize/2); i++) {
+		for (int j = pixelCol - (patchSize/2); j < pixelCol + (patchSize/2); j++) {
+			double actualValue = bwValues[(3840 * i) + j];
+			double copiedValue = patch[(patchSize * (i - pixelRow+ (patchSize/2))) + (j - pixelCol+ (patchSize/2))];
+			if (abs(actualValue - copiedValue) > 0.00004) {
+				printf("SOMETHING WENT WRONG! actual: %lf recorded: %lf \n", actualValue, copiedValue);
+			}
+		}
+	}
 }

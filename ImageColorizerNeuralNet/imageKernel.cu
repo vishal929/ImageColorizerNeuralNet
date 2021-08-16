@@ -205,19 +205,35 @@ __global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, in
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     for (int i = tid; i < patchSize * patchSize * features; i += gridDim.x * blockDim.x) {
         // filling the associated patch array in global memory
-        int row = pixelRow - (i / patchSize);
-        int col = pixelCol - (i % patchSize);
+        int row = (i / patchSize);
+        int col = (i % patchSize);
+        int shiftedRow = pixelRow - (patchSize/2) + row;
+        int shiftedCol = pixelCol - (patchSize/2) + col;
         // getting the feature -> x^1 or x^2 etc.
         int feature = ((i / (patchSize * patchSize)) + 1);
-        if (row < 0 || row >= rowDim || col < 0 || col >= colDim) {
+        if (shiftedRow < 0 || shiftedRow >= rowDim || shiftedCol < 0 || shiftedCol >= colDim) {
 			// then this pixel is out of bounds, we should color it black in the patch
 			imagePatch[(patchSize * row) + col] = 0;
 		}
 		else {
-			// then this pixel is in the original image, we will copy its value to the patch
-			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*row ) + col], double(feature));
+			// then this pixel is in the original image, we will copy its value to the patch 
+			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*shiftedRow) + shiftedCol], double(feature));
 		}
     }
+}
+
+//wrapper for the getPatch kernel call
+void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int colDim, int patchSize, int features, int pixelRow, int pixelCol) {
+    //allocating device memory
+    double *deviceImagePixels, *deviceImagePatch;
+    cudaMalloc(&deviceImagePixels, sizeof(double) * rowDim * colDim);
+    cudaMalloc(&deviceImagePatch, sizeof(double) * patchSize * patchSize * features);
+    // copying memory
+    cudaMemcpy(deviceImagePixels, imagePixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice);
+    // calling the kernel
+    getPatch<<<200, 256>>>(deviceImagePixels, deviceImagePatch, rowDim, colDim, patchSize, features, pixelRow, pixelCol);
+    // copying result back to host memory
+    cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize * features, cudaMemcpyDeviceToHost);
 }
 
 // idea here is to take our input, apply the weights to every input pixel, and then modify the result buffers, we will use Relu for now
