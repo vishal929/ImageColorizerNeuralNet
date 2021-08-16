@@ -174,31 +174,53 @@ __global__ void vectorDot(double* weights, double* input, double* result, int le
 
 //idea here is to associate each pixel with some patch -> will aid in feature detection
 // if the pixel is on an edge, we just fill the rest of the patch with black
-__global__ void getPatches(double* imagePixels, double** imagePatches, int rowDim, int colDim) {
+// we also will add features by modifying the data set (i.e if features is set to 2, the squared input will also be included in the patch)
+// NOT TESTED
+__global__ void getPatches(double* imagePixels, double** imagePatches, int rowDim, int colDim, int patchSize, int features) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int maxIndex = rowDim * colDim;
     for (int i = tid; i < maxIndex; i += gridDim.x * blockDim.x) {
         // filling the associated patch array in global memory
-        int row = tid / colDim;
-        int col = tid - (row * colDim);
-        for (int j = row-30;j != row+30;j++) {
-            for (int z = col-30; z != col+30; z++) {
-                // 31x31 patch of pixels will be considered for now
-                if (j<0 || j>= rowDim || z<0 || z>=colDim ) {
-                    //then the pixel in the loop is out of bounds, we will stick in black scaled pixel
-                    imagePatches[i][(31*(j-row+30)) + (z-col+30)] = 1;
+        int row = i / colDim;
+        int col = i % colDim;
+        for (int j = 0; j < patchSize; j++) {
+            for (int z = 0; z < patchSize; z++) {
+                int shiftedRow = row - patchSize;
+                int shiftedCol = col - patchSize;
+                if (shiftedRow < 0 || shiftedRow >= rowDim || shiftedCol < 0 || shiftedCol >= colDim) {
+                    // then this pixel is out of bounds, we should color it black in the patch
+                    (imagePatches[i])[(patchSize * shiftedRow) + shiftedCol] = 0;
                 }
                 else {
-                    // then we copy the pixel value
-                    imagePatches[i][(31*(j-row+30)) + (z-col+30)] = imagePixels[(rowDim * j) + z];
+                    // then this pixel is in the original image, we will copy its value to the patch
+                    (imagePatches[i])[(patchSize * shiftedRow) + shiftedCol] = imagePixels[(rowDim*shiftedRow) + shiftedCol];
                 }
             }
         }
     }
 }
 
+// similar to getPatches, but gets a single patch based on a pixels row and column-> this will help for stochastic gradient descent
+__global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, int colDim, int patchSize, int features, int pixelRow, int pixelCol) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int i = tid; i < patchSize * patchSize * features; i += gridDim.x * blockDim.x) {
+        // filling the associated patch array in global memory
+        int row = pixelRow - (i / patchSize);
+        int col = pixelCol - (i % patchSize);
+        // getting the feature -> x^1 or x^2 etc.
+        int feature = ((i / (patchSize * patchSize)) + 1);
+        if (row < 0 || row >= rowDim || col < 0 || col >= colDim) {
+			// then this pixel is out of bounds, we should color it black in the patch
+			imagePatch[(patchSize * row) + col] = 0;
+		}
+		else {
+			// then this pixel is in the original image, we will copy its value to the patch
+			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*row ) + col], double(feature));
+		}
+    }
+}
 
-// idea here is to take our input, apply the weights to every input pixel, and then modify the result buffers, we will use sigmoid for now
+// idea here is to take our input, apply the weights to every input pixel, and then modify the result buffers, we will use Relu for now
 __global__ void evaluateModel(double** inputPatches, double* weightsR, double* weightsG, double* weightsB, int numWeights, int* resultR, int* resultG, int* resultB, int rowDim, int colDim) {   
     // each thread handles a single pixel scaled value 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
