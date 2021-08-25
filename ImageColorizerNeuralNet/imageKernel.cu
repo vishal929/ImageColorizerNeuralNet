@@ -1,4 +1,4 @@
-﻿
+﻿// purpose of this file is to house logic for gpu kernels dealing with image transformation and scaling
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
@@ -236,15 +236,6 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
     cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize * features, cudaMemcpyDeviceToHost);
 }
 
-// idea here is to take our input, apply the weights to every input pixel, and then modify the result buffers, we will use Relu for now
-__global__ void evaluateModel(double** inputPatches, double* weightsR, double* weightsG, double* weightsB, int numWeights, int* resultR, int* resultG, int* resultB, int rowDim, int colDim) {   
-    // each thread handles a single pixel scaled value 
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    for (int i = tid;i < rowDim * colDim; i += gridDim.x * blockDim.x) {
-        //
-    }
-}
-
 // gpu kernel to scale the input pixels to be normalized
 __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, int colDim) {
     int maxDim = rowDim * colDim;
@@ -254,38 +245,3 @@ __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, i
     }
 }
 
-// calculating the error between a generated color image and the actual color image
-// result[0] will hold red error, result[1] will hold green error and result[2] will hold blue error
-__global__ void calculateImageError(int* actualR, int* actualG, int* actualB, int* guessedR, int* guessedG, int* guessedB, int* resultR, int* resultG, int* resultB, int rowDim, int colDim) {
-    // idea is to store each pixels error in shared memory, and then add up all the error in a reduction -> error is 
-    // we will call the kernel with 256 threads per block
-    __shared__ int errorR[256];
-    __shared__ int errorG[256];
-    __shared__ int errorB[256];
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    const int maxDim = rowDim * colDim;
-    // putting error of this pixel into shared memory
-    errorR[tid] = abs(actualR[tid] - guessedR[tid]);
-    errorG[tid] = abs(actualG[tid] - guessedG[tid]);
-    errorB[tid] = abs(actualB[tid] - guessedB[tid]);
-    __syncthreads();
-
-    // doing add reduce of shared memory
-    for (int s = blockDim.x/2; s > 0; s >>= 1) {
-        if (tid < s) {
-            // add
-            errorR[tid] += errorR[s + tid];
-            errorG[tid] += errorG[s + tid];
-            errorB[tid] += errorB[s + tid];
-        }
-        __syncthreads();
-    }
-
-    // final atomic add to global memory
-    if (tid == 0) {
-        // then this thread holds the snared mem reduction, it should atomic add to the result
-        atomicAdd(errorR, resultR[0]);
-        atomicAdd(errorG, resultG[0]);
-        atomicAdd(errorB, resultB[0]);
-    }
-}
