@@ -1,27 +1,12 @@
-// file serves as a container for logic associated with neural net specifics
+// file serves as a container for logic associated with neural net specifics -> allows building and training the model on CPU
+// The gpu specific logic will be implemented later -> the gpu can use the structs, but the function will need to be adjusted on the CUDA side
 
 #include <math.h>
+#include "NeuralNet.h"
 
 double inputFunction(double input);
 
-typedef struct layer {
-	// a layer should include a function
-	double (*function)(double);
-	// each layer should have some list of weights associated with it to form a matrix for the next layer
-	double* weights;
-	// row for weights matrix
-	int weightsRows;
-	// columns for weights matrix;
-	int weightsCols;
-} layer;
 
-typedef struct net {
-	// a net should be a list of middle layers (in order) for propogation
-	layer* neuralLayers;
-	double* inputs;
-	// including number of inputs for batch training
-	int numInputs;
-} net;
 
 // function for an input layer
 double inputFunction(double input) {
