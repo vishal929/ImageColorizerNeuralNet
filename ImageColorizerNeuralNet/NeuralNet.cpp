@@ -5,26 +5,16 @@
 #include <fstream>
 #include <iostream>
 #include <stdio.h>
+#include <CImg.h>
+#include <random>
+#include<fileapi.h>
+
+// including cuda kernels
+#include "NeuralKernel.cuh"
+#include "imageKernel.cuh"
+
 using namespace std;
-
-double inputFunction(double input);
-
-
-
-// function for an input layer
-double inputFunction(double input) {
-	return input;
-}
-
-// function for ReLu 
-double reluFunction(double input) {
-	return fmax(0, input);
-}
-
-// function for matrix multiplication for layer weights calculation
-double weightCalculation(double* inputs, double* weights, int inputsRows, int weightsColumns) {
-
-}
+using namespace cimg_library;
 
 // initializing a neural net based on weights
 
@@ -36,7 +26,10 @@ double weightCalculation(double* inputs, double* weights, int inputsRows, int we
 // we may want to load a model from weights after training sessions so we do not "lose" progress
 net* loadNeuralNet(int numInputsInData) {
 	// we will check from "0weights.txt", "1weights.txt", etc. to find # of layers
-	// if none found, we return NULL -> then we can call initialize neuralNet instead
+	// if none found, we initialize neuralNet instead
+
+	// important: if numInputsInData does not align with numNeurons in layer 0, then we should return NULL and print a warning to the user that the inputs do not match up!
+	// (this indicates that they modified the patch size, but they want to retrain the same model! They should train a new model after deleting the weight txt files)
 }
 
 // initializes a neural net object with random small weight values -> output layer not included in count but input layer is
@@ -66,7 +59,7 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		srand(time(NULL));
 		for (int j = 0; j < innerLayers[i]->numNeuronsCurrentLayer * innerLayers[i]->numNeuronsNextLayer; j++) {
 			// random double between 0 and 0.25
-			innerLayers[i]->weightMatrix[j] = rand() / (RAND_MAX * 4);
+			innerLayers[i]->weightMatrix[j] =double( rand()) / double((RAND_MAX * 4));
 		}
 		// initializing biases to zero
 		for (int j = 0; j < innerLayers[j]->numNeuronsNextLayer; j++) {
@@ -132,10 +125,163 @@ void writeWeights(net* neuralNet) {
 
 //function for training -> go through all images in training data and minimize mean squared error
 void trainNeuralNet() {
-	//
+	
+	int numTrainingImages = getNumTrainingImages();
+	// idea is to choose a random picture in the training data folder
+	// convert this image to black and white pixel values
+	// then choose a random pixel
+	// apply it to our neural net to predict RGB values
+	// then do backpropogation
+	// every 100 training sessions , we will write the weights out the txt file and then show total error of an image to the user
+	int numTrainingSessions = 100;
+	// we will use patch size 301x301 with the middle pixel being the pixel we wish to color
+	int patchSize = 301;
+
+	// loading the neural net or creating a new one if weights txt files are not found
+	net* netToTrain = loadNeuralNet(patchSize * patchSize);
+
+	// getting random number in a range
+	random_device rando; 
+	mt19937 gen(rando()); 
+	uniform_int_distribution<> distr(0, numTrainingImages-1); // define the range
+	int imageToPick = distr(gen);
+
+	// choosing a random picture
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
+
+	hFind = FindFirstFile("./TestData", &FindFileData);
+	
+	for (int i = 0; i <= imageToPick; i++) {
+		FindNextFile(hFind, &FindFileData);
+	}
+
+	// now the data is pointed to the picture to choose
+
+	// using cimg to get data for the given picture
+	CImg<int> colorPicture(FindFileData.cFileName);
+
+	// calling CUDA kernel to get the black and white image
+	int* colorR = colorPicture.data();
+	int* colorG = colorR + (colorPicture.height() * colorPicture.width());
+	int* colorB = colorG + (colorPicture.height() * colorPicture.width());
+	int* bwBuffer = (int*)malloc(sizeof(int) * colorPicture.width() * colorPicture.height());
+
+	makeImageBlackAndWhiteWrapper(colorR, colorG, colorB, bwBuffer, colorPicture.height(), colorPicture.width());
+	
+	/* Converting picture to 4k black and white and then picking a random pixel*/
+
+	int* newBWValues = (int*)malloc(sizeof(int) * 3840 * 2160);
+	// calling kernel wrapper for gpu function
+	makeBlackWhiteImage4KWrapper(bwBuffer, newBWValues, colorPicture.height(), colorPicture.width());
+	free(bwBuffer);
+	// need to also convert color image to 4k for comparison and backpropogation
+	int* newR = (int*)malloc(sizeof(int) * 3840 * 2160);
+	int* newG = (int*)malloc(sizeof(int) * 3840 * 2160);
+	int* newB = (int*)malloc(sizeof(int) * 3840 * 2160);
+	makeColorImage4kWrapper(colorR, colorG,colorB,  newR,  newG,  newB, colorPicture.height(), colorPicture.width());
+
+	/*Scaling greyscale values to be between 0 and 1*/
+	double* scaledBWValues = (double*)malloc(sizeof(double) * 3840 * 2160);
+	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
+	free(newBWValues);
+	// now scaled BWValues holds the scaled image pixels
+	
+	int numEpochs = 0;
+	while (numEpochs != numTrainingSessions) {
+		/* Picking a random patch to run through our neural net*/
+		random_device rando;
+		mt19937 gen(rando());
+		uniform_int_distribution<> row(0, 3839);
+		uniform_int_distribution<> col(0, 2159); 
+		int rowOfPixel= row(gen);
+		int colOfPixel= col(gen);
+		double* imagePatch = (double*) malloc(sizeof(double) * patchSize * patchSize);
+		getPatchWrapper(scaledBWValues,imagePatch, 3840, 2160, patchSize, 1, rowOfPixel, colOfPixel);
+
+		// running the patch through our neural net
+		double* netOutputRGB = evaluateNeuralNet(imagePatch, netToTrain);
+		int actualR = newR[(rowOfPixel * 2160) + colOfPixel];
+		int actualG = newG[(rowOfPixel * 2160) + colOfPixel];
+		int actualB = newB[(rowOfPixel * 2160) + colOfPixel];
+
+		// going through backpropogation algorithm with the output
+		backPropogate(netOutputRGB, actualR, actualG, actualB, netToTrain);
+
+		if (numEpochs == numTrainingSessions) {
+			// firstly writing the weights to the filesystem to "save" our training progress
+			printf("DONE WRITING WEIGHTS TO FILESYSTEM!\n");
+			// we want to see the complete error of this image, if it is very high, we want to continue training
+			printf("ERROR FOR TRAINING IMAGE: %s: %lf\n", FindFileData.cFileName, 0.0);
+		} 
+
+	}
+	printf("DONE TRAINING IMAGE: %s\n", FindFileData.cFileName);
+	
+
+}
+
+// function for using the neural net on testing data
+void testNeuralNet() {
+	int numTestImages = getNumTestImages();
+	// chooses a random image in the test data folder
+	// converts to black and white
+	// runs every single patch through the neural net and evaluates mean squared error for each RGB value
+	// returns the total error to the user
+
+	// getting random number in a range
+	random_device rando; 
+	mt19937 gen(rando()); 
+	uniform_int_distribution<> distr(0, numTestImages-1); // define the range
+	int imageToPick = distr(gen);
+
+	// choosing a random picture
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
+
+	hFind = FindFirstFile("./TestData", &FindFileData);
+	
+	for (int i = 0; i <= imageToPick; i++) {
+		FindNextFile(hFind, &FindFileData);
+	}
+	// getting error for this image
+	printf("ERROR FOR TESTING NET ON IMAGE %s: %lf\n", FindFileData.cFileName, 0.0);
 }
 
 //function for evaluating (given a black and white picture, output the color image after evaluation of patches in neural net)
-void evaluateNeuralNet(char* blackWhiteImageName) {
+void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
+	// calling evaluate neural net for every patch and then using CIMG to save the output color image
+}
 
+// we are doing a single sigmoid layer for now and we will get RGB output
+double* evaluateNeuralNet(double* patch, net* netToRun) {
+		
+}
+
+void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain) {
+
+}
+
+int getNumTrainingImages() {
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
+	int numPictures = 0;
+	hFind = FindFirstFile("./TrainingData", &FindFileData);
+	while (FindNextFile(hFind, &FindFileData) == true) {
+		numPictures++;
+	}
+	FindClose(hFind);
+	return numPictures;
+}
+
+int getNumTestImages() {
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
+	int numPictures = 0;
+	hFind = FindFirstFile("./TestData", &FindFileData);
+	while (FindNextFile(hFind, &FindFileData) == true) {
+		numPictures++;
+	}
+	FindClose(hFind);
+	return numPictures;
 }

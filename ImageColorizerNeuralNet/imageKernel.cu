@@ -234,6 +234,9 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
     getPatch<<<200, 256>>>(deviceImagePixels, deviceImagePatch, rowDim, colDim, patchSize, features, pixelRow, pixelCol);
     // copying result back to host memory
     cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize * features, cudaMemcpyDeviceToHost);
+    //freeing gpu memory
+    cudaFree(deviceImagePixels);
+    cudaFree(deviceImagePatch);
 }
 
 // gpu kernel to scale the input pixels to be normalized
@@ -243,6 +246,21 @@ __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, i
         // max value is 255, so we just divide the input pixel value by 255
         outputValues[i] = ((double)(inputPixels[i])) / 255;
     }
+}
+
+void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int colDim) {
+    double* deviceInputPixels, * deviceOutputValues;
+    cudaMalloc(&deviceInputPixels, sizeof(int) * rowDim * colDim);
+    cudaMalloc(&deviceOutputValues, sizeof(double) * rowDim * colDim);
+    //copying memory
+    cudaMemcpy(deviceInputPixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    // calling kernel
+    pixelScale << <200, 256 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim);
+    // copying output back to host memory
+    cudaMemcpy(outputValues, deviceOutputValues, sizeof(double) * rowDim * colDim);
+    //freeing gpu memory
+    cudaFree(deviceInputPixels);
+    cudaFree(deviceOutputValues);
 }
 
 __global__ void addFeature(double* inputPixels, double* outputValues, int rowDim, int colDim, int featureNumber) {

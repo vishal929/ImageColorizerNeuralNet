@@ -11,7 +11,8 @@
 // input will be greyscale values for every single pixel in the 4k image
 // output will be rgbrgbrgb for each pixel in order -> to easily convert to cimg and to easily grab the error
 
-// idea is 3 layers (input layer, hidden layer, output layer with 3 output neurons) for now with 100 neurons and ReLu activation function
+// idea is 4 layers (input layer, 2 hidden layer, output layer with 3 output neurons) for now with 100 neurons and ReLu activation function layer into the Sigmoid activation function layer which feeds into output
+// we will try 3 layers with only sigmoid now, and if that isnt enough we will add a relu layer before and see if that helps
 
 // evaluating inputs for every neuron in a layer and setting the second layer output
 // this is accomplished with matrix multiplication
@@ -32,9 +33,10 @@ __global__ void reluResults(double* inputs, int numInputs) {
 	}
 }
 
-// helper for training
-__global__ void gradientDescent() {
-
+// applies sigmoid activation function to results
+__global__ void sigmoidResults(double* inputs, int numInputs) {
+	for (int i = blockIdx.x * gridDim.x + threadIdx.x; i < numInputs; i += gridDim.x * blockDim.x) {
+		inputs[i] = 1 / (1 + exp(-inputs[i]));
+	}
 }
-
 
