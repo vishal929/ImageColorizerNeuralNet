@@ -1,5 +1,4 @@
-// file serves as a container for logic associated with neural net specifics -> allows building and training the model on CPU
-// The gpu specific logic will be implemented later -> the gpu can use the structs, but the function will need to be adjusted on the CUDA side
+// file serves as a container for logic associated with neural net specifics
 
 #include <math.h>
 #include "NeuralNet.h"
@@ -35,8 +34,49 @@ double weightCalculation(double* inputs, double* weights, int inputsRows, int we
 // each layer will have a different txt file with weights
 
 // we may want to load a model from weights after training sessions so we do not "lose" progress
-net* loadNetFromWeights() {
+net* loadNeuralNet(int numInputsInData) {
+	// we will check from "0weights.txt", "1weights.txt", etc. to find # of layers
+	// if none found, we return NULL -> then we can call initialize neuralNet instead
+}
 
+// initializes a neural net object with random small weight values -> output layer not included in count but input layer is
+net* initializeNeuralNet(int numLayers, int numInputsInData) {
+	net* toReturn = (net*)malloc(sizeof(net));
+	toReturn->numLayers = numLayers;
+	// allocating inner layers
+	layer** innerLayers = (layer**)malloc(sizeof(layer*) * numLayers);
+	for (int i = 0; i < numLayers; i++) {
+		innerLayers[i] = (layer*) malloc(sizeof(layer));
+		int neuronsNextLayer;
+		if (i == numLayers - 1) {
+			neuronsNextLayer = 3;
+		}
+		else {
+			neuronsNextLayer = 100;
+		}
+		innerLayers[i]->numNeuronsNextLayer= neuronsNextLayer;
+		if (i == 0) {	
+			// input layer
+			innerLayers[i]->numNeuronsCurrentLayer = numInputsInData;
+		}
+		else {
+			innerLayers[i]->numNeuronsCurrentLayer = 100;
+		}
+		// initializing weight matrix to random small values
+		srand(time(NULL));
+		for (int j = 0; j < innerLayers[i]->numNeuronsCurrentLayer * innerLayers[i]->numNeuronsNextLayer; j++) {
+			// random double between 0 and 0.25
+			innerLayers[i]->weightMatrix[j] = rand() / (RAND_MAX * 4);
+		}
+		// initializing biases to zero
+		for (int j = 0; j < innerLayers[j]->numNeuronsNextLayer; j++) {
+			innerLayers[i]->biases[j] = 0;
+		}
+	}
+	toReturn->numInputs = numInputsInData;
+	toReturn->neuralLayers = innerLayers;
+
+	return toReturn;
 }
 
 //we will want to periodically write back weights when training the model
