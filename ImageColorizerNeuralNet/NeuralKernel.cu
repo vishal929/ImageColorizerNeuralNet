@@ -11,24 +11,30 @@
 // input will be greyscale values for every single pixel in the 4k image
 // output will be rgbrgbrgb for each pixel in order -> to easily convert to cimg and to easily grab the error
 
-__global__ void inputFunction(double* inputs, int numInputs, layer* inputLayer) {
-	// just setting all the inputs to the inputLayer neurons
-	int tid = blockIdx.x * gridDim.x + threadIdx.x;
-	for (int i = tid; i < numInputs; i += blockDim.x * gridDim.x) {
-		((inputLayer->neurons)[i])->input = inputs[i];
+// idea is 3 layers (input layer, hidden layer, output layer with 3 output neurons) for now with 100 neurons and ReLu activation function
+
+// evaluating inputs for every neuron in a layer and setting the second layer output
+// this is accomplished with matrix multiplication
+
+// we will use cuBLAS NVIDIA api for fast matrix multiplication
+
+// will need to add biases to matrix results if any -> we have as many biases as results
+__global__ void biasAdd(double* results,double* biases, int numBiases) {
+	for (int i = blockIdx.x * gridDim.x + threadIdx.x; i < numBiases; i += gridDim.x * blockDim.x) {
+		results[i] += biases[i];
 	}
 }
 
-// evaluating inputs for every neuron in a layer and setting the second layer output
-__global__ void evaluateLayer(layer* firstLayer, layer* secondLayer) {
-	int tid = blockIdx.x * gridDim.x + threadIdx.x;
-	for (int i = tid; i < firstLayer->numNeurons; i += gridDim.x * blockDim.x) {
-		double output = (firstLayer->function)((firstLayer->neurons)[i]->input);
-		// adjusting second layer
-		for (int j = tid; j < secondLayer->numNeurons; j += gridDim.x * blockDim.x) {
-			atomicAdd(&(((secondLayer->neurons)[j])->input), output*(firstLayer->neurons[i]->weights[j]));
-		}
+// applies relu activation function to results
+__global__ void reluResults(double* inputs, int numInputs) {
+	for (int i = blockIdx.x * gridDim.x + threadIdx.x; i < numInputs; i += gridDim.x * blockDim.x) {
+		inputs[i] = fmaxf(0, inputs[i]);
 	}
+}
+
+// helper for training
+__global__ void gradientDescent() {
+
 }
 
 

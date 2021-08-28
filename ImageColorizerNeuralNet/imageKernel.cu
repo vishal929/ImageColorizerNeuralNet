@@ -245,3 +245,7 @@ __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, i
     }
 }
 
+__global__ void addFeature(double* inputPixels, double* outputValues, int rowDim, int colDim, int featureNumber) {
+
+}
+
