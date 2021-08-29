@@ -12,6 +12,7 @@ typedef struct layer {
 	// the number of columns in the weight matrix is the number of neurons in the current layer
 	int numNeuronsCurrentLayer;
 	// each layer has a set of biases for every neuron in the NEXT layer
+	// TODO: A BIAS SHOULD BE A SINGLE EXTRA NEURON IN THE CURRENT LAYER WITH CONSTANT ACTIVATION=1 (so that the weight is the actual bias)
 	double* biases;
 } layer;
 
