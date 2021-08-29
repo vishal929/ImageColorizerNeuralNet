@@ -74,10 +74,6 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 					}
 				}
 			}
-			// getting bias data
-			for (int j = 0; j < numNeuronsNextLayer; j++) {
-				fscanf(weightsFile, "% d\n", &(toReturn->neuralLayers[i]->biases[j]));
-			}
 		}
 		free(weightFileName);
 		fclose(weightsFile);
