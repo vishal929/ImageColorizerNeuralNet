@@ -27,6 +27,9 @@ int main(int argc, char* argv[]) {
 	GPUConvertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
 	GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
+	// training the neural net trainNeuralNet()
+	// testing the neural net testNeuralNet()
+	// evaluating the neural net on a given image evaluateNeuralNet()
 	return 0;
 }
 

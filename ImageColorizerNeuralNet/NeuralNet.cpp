@@ -319,6 +319,7 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		
 }
 
+// function for propogating backwards through the neural net and adjusting the weights
 void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain) {
 
 }
