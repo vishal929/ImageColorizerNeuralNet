@@ -24,12 +24,66 @@ using namespace cimg_library;
 // each layer will have a different txt file with weights
 
 // we may want to load a model from weights after training sessions so we do not "lose" progress
-net* loadNeuralNet(int numInputsInData) {
+net* loadNeuralNet(int numLayers, int numInputsInData) {
 	// we will check from "0weights.txt", "1weights.txt", etc. to find # of layers
 	// if none found, we initialize neuralNet instead
 
 	// important: if numInputsInData does not align with numNeurons in layer 0, then we should return NULL and print a warning to the user that the inputs do not match up!
 	// (this indicates that they modified the patch size, but they want to retrain the same model! They should train a new model after deleting the weight txt files)
+
+	// I will probably not have more than 5 layers in the neural net for this problem
+	net* toReturn = (net*)malloc(sizeof(net));
+	toReturn->neuralLayers = (layer**)malloc(sizeof(layer*) * numLayers);
+	for (int i = 0; i < numLayers; i++) {
+		//allocating layers
+		toReturn->neuralLayers[i] = (layer*)malloc(sizeof(layer));
+	}
+	for (int i = 0; i < numLayers; i++) {
+		char* weightFileName = (char*)malloc(sizeof(char) * 13);
+		weightFileName[0] = '0' + i;
+		memcpy(weightFileName + 1, &"weights.txt\0", sizeof(char) * 12);
+		FILE* weightsFile = fopen(weightFileName, "r");
+		if (weightsFile == NULL && i == 0) {
+			// then weights dont exist
+			for (int j = 0; j < numLayers; j++) {
+				free(toReturn->neuralLayers[j]->biases);
+				free(toReturn->neuralLayers[j]->weightMatrix);
+				free(toReturn->neuralLayers[j]);
+			}
+			free(toReturn->neuralLayers);
+			free(toReturn);
+			free(weightFileName);
+			return NULL;
+		}
+		else {
+			// then extracting data into the layer struct
+			int numNeurons, numNeuronsNextLayer;
+			fscanf(weightsFile, "%d %d\n", &numNeurons, &numNeuronsNextLayer);
+			toReturn->neuralLayers[i]->numNeuronsCurrentLayer = numNeurons;
+			toReturn->neuralLayers[i]->numNeuronsNextLayer = numNeuronsNextLayer;
+			toReturn->neuralLayers[i]->biases = (double*) malloc(sizeof(double) * numNeuronsNextLayer);
+			toReturn->neuralLayers[i]->weightMatrix = (double*)malloc(sizeof(double) * numNeurons * numNeuronsNextLayer);
+			// getting matrix data
+			for (int j = 0; j < numNeuronsNextLayer; j++) {
+				for (int z = 0; z < numNeurons; z++) {
+					if (z == numNeurons - 1) {
+						fscanf(weightsFile, "%d\n", &(toReturn->neuralLayers[i]->weightMatrix[(j * numNeurons) + z]));
+					}
+					else {
+						fscanf(weightsFile, "%d ", &(toReturn->neuralLayers[i]->weightMatrix[(j * numNeurons) + z]));
+					}
+				}
+			}
+			// getting bias data
+			for (int j = 0; j < numNeuronsNextLayer; j++) {
+				fscanf(weightsFile, "% d\n", &(toReturn->neuralLayers[i]->biases[j]));
+			}
+		}
+		free(weightFileName);
+		fclose(weightsFile);
+	}
+	return toReturn;
+
 }
 
 // initializes a neural net object with random small weight values -> output layer not included in count but input layer is
@@ -118,6 +172,8 @@ void writeWeights(net* neuralNet) {
 		}
 		// closing the file since writing is done
 		fclose(layer_weights);
+		// freeing memory
+		free(basename);
 	}
 
 	
@@ -125,7 +181,13 @@ void writeWeights(net* neuralNet) {
 
 //function for training -> go through all images in training data and minimize mean squared error
 void trainNeuralNet() {
-	
+	// we will use patch size 301x301 with the middle pixel being the pixel we wish to color
+	int patchSize = 301;
+	// we will use 2 layers for now (input into sigmoid)
+	net* loadedNet = loadNeuralNet(2, patchSize * patchSize);
+	if (loadedNet == NULL) {
+		loadedNet = initializeNeuralNet(2, patchSize * patchSize);
+	}
 	int numTrainingImages = getNumTrainingImages();
 	// idea is to choose a random picture in the training data folder
 	// convert this image to black and white pixel values
@@ -134,8 +196,7 @@ void trainNeuralNet() {
 	// then do backpropogation
 	// every 100 training sessions , we will write the weights out the txt file and then show total error of an image to the user
 	int numTrainingSessions = 100;
-	// we will use patch size 301x301 with the middle pixel being the pixel we wish to color
-	int patchSize = 301;
+	
 
 	// loading the neural net or creating a new one if weights txt files are not found
 	net* netToTrain = loadNeuralNet(patchSize * patchSize);
