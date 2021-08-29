@@ -94,7 +94,7 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 	layer** innerLayers = (layer**)malloc(sizeof(layer*) * numLayers);
 	for (int i = 0; i < numLayers; i++) {
 		innerLayers[i] = (layer*) malloc(sizeof(layer));
-		int neuronsNextLayer;
+		int neuronsNextLayer, neuronsCurrentLayer;
 		if (i == numLayers - 1) {
 			neuronsNextLayer = 3;
 		}
@@ -104,11 +104,15 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		innerLayers[i]->numNeuronsNextLayer= neuronsNextLayer;
 		if (i == 0) {	
 			// input layer
+			neuronsCurrentLayer = numInputsInData;
 			innerLayers[i]->numNeuronsCurrentLayer = numInputsInData;
 		}
 		else {
+			neuronsCurrentLayer = 100;
 			innerLayers[i]->numNeuronsCurrentLayer = 100;
 		}
+		// allocating weight matrix
+		innerLayers[i]->weightMatrix = (double*) malloc(sizeof(double) * neuronsNextLayer * neuronsCurrentLayer);
 		// initializing weight matrix to random small values
 		srand(time(NULL));
 		for (int j = 0; j < innerLayers[i]->numNeuronsCurrentLayer * innerLayers[i]->numNeuronsNextLayer; j++) {
@@ -119,6 +123,8 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		for (int j = 0; j < innerLayers[j]->numNeuronsNextLayer; j++) {
 			innerLayers[i]->biases[j] = 0;
 		}
+		// initializing layer inputs
+		innerLayers[i]->neuronInputs = (double*) malloc(sizeof(double) * neuronsCurrentLayer);
 	}
 	toReturn->numInputs = numInputsInData;
 	toReturn->neuralLayers = innerLayers;
@@ -316,7 +322,26 @@ void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
 
 // we are doing a single sigmoid layer for now and we will get RGB output
 double* evaluateNeuralNet(double* patch, net* netToRun) {
-		
+	// firstly setting the neural net inputs to the patch	
+	netToRun->inputs = patch;
+	double *output;
+	for (int i = 0; i < netToRun->numLayers; i++) {
+		layer* toConsider = netToRun->neuralLayers[i];
+		if (i == 0) {
+			// then we just copy the inputs to the layer inputs 
+			memcpy(toConsider->neuronInputs, netToRun->inputs, sizeof(double)*netToRun->numInputs);
+				
+		} 
+		// matrix multiply of weights with inputs and adding biases
+		output = (double*)malloc(sizeof(double) * toConsider->numNeuronsNextLayer);
+		layerMultiplicationAddWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		if (i != netToRun->numLayers - 1) {
+			memcpy(netToRun->neuralLayers[i + 1]->neuronInputs, output, sizeof(double) * toConsider->numNeuronsNextLayer);
+			free(output);
+		}
+	}
+	// returning the final 3 rgb values (before scaling by 255)
+	return output;
 }
 
 // function for propogating backwards through the neural net and adjusting the weights

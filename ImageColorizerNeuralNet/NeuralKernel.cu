@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <cuda/std/cmath>
+#include <cublas.h>
 
 #include "NeuralNet.h"
 
@@ -17,7 +18,31 @@
 // evaluating inputs for every neuron in a layer and setting the second layer output
 // this is accomplished with matrix multiplication
 
-// we will use cuBLAS NVIDIA api for fast matrix multiplication
+// we will use cuBLAS NVIDIA api for fast matrix multiplication and bias add at every layer
+void layerMultiplicationAddWrapper(double* weights, double* inputs, double* biases, double* output, int numNeuronsNextLayer, int numNeuronsCurrentLayer) {
+	//wrapping multiplication with cublas	
+	double* deviceWeights, * deviceInputs, * deviceBiases;
+	cudaMalloc(&deviceWeights, sizeof(double) * numNeuronsNextLayer * numNeuronsCurrentLayer);
+	cudaMalloc(&deviceInputs, sizeof(double) * numNeuronsCurrentLayer);	
+	cudaMalloc(&deviceBiases, sizeof(double) * numNeuronsNextLayer);
+
+	// copying host memory to device
+	cudaMemcpy(deviceWeights, weights, sizeof(double) * numNeuronsCurrentLayer*numNeuronsNextLayer, cudaMemcpyHostToDevice);
+	cudaMemcpy(deviceInputs, inputs, sizeof(double) * numNeuronsCurrentLayer, cudaMemcpyHostToDevice);
+	cudaMemcpy(deviceBiases, biases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyHostToDevice);
+
+	//calling cublas matrix multiply and adding biases vector
+	cublasHandle_t handle;
+	cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, numNeuronsNextLayer, 1, numNeuronsCurrentLayer, 1, deviceWeights, numNeuronsNextLayer, deviceInputs, numNeuronsCurrentLayer, 1, deviceBiases, numNeuronsNextLayer);
+
+	// copying result of multiplication and addition back to output host memory
+	cudaMemcpy(output, deviceBiases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyDeviceToHost);
+
+	//freeing device memory
+	cudaFree(deviceWeights);
+	cudaFree(deviceInputs);
+	cudaFree(deviceBiases);
+}
 
 // will need to add biases to matrix results if any -> we have as many biases as results
 __global__ void biasAdd(double* results,double* biases, int numBiases) {
