@@ -319,6 +319,9 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		// matrix multiply of weights with inputs and adding biases
 		output = (double*)malloc(sizeof(double) * toConsider->numNeuronsNextLayer);
 		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		// running sigmoid of the output (of our only layer)
+		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
+		
 		if (i != netToRun->numLayers - 1) {
 			memcpy(netToRun->neuralLayers[i + 1]->neuronInputs, output, sizeof(double) * toConsider->numNeuronsNextLayer);
 			free(output);

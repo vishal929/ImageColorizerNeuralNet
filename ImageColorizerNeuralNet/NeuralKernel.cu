@@ -64,3 +64,15 @@ __global__ void sigmoidResults(double* inputs, int numInputs) {
 	}
 }
 
+void sigmoidWrapper(double* inputs, int numInputs) {
+	double* deviceInputs;
+	cudaMalloc(&deviceInputs, sizeof(double) * numInputs);
+
+	cudaMemcpy(deviceInputs, inputs, sizeof(double) * numInputs, cudaMemcpyHostToDevice);
+
+	sigmoidResults << <200, 256 >> > (deviceInputs, numInputs);
+	//copying back to host and freeing memory
+	cudaMemcpy(inputs, deviceInputs, sizeof(double) * numInputs, cudaMemcpyDeviceToHost);
+	cudaFree(deviceInputs);
+}
+
