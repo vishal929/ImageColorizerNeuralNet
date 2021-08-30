@@ -18,29 +18,29 @@
 // evaluating inputs for every neuron in a layer and setting the second layer output
 // this is accomplished with matrix multiplication
 
-// we will use cuBLAS NVIDIA api for fast matrix multiplication and bias add at every layer
-void layerMultiplicationWrapper(double* weights, double* inputs, double* output, int numNeuronsNextLayer, int numNeuronsCurrentLayer) {
+// we will use cuBLAS NVIDIA api for fast matrix multiplication 
+void layerMultiplicationWrapper(double* weights, double* inputs, double* biases, double* output, int numNeuronsNextLayer, int numNeuronsCurrentLayer) {
 	//wrapping multiplication with cublas	
-	double* deviceWeights, * deviceInputs, * deviceOutput;
+	double* deviceWeights, * deviceInputs, * deviceBiases;
 	cudaMalloc(&deviceWeights, sizeof(double) * numNeuronsNextLayer * numNeuronsCurrentLayer);
 	cudaMalloc(&deviceInputs, sizeof(double) * numNeuronsCurrentLayer);	
-	cudaMalloc(&deviceOutput, sizeof(double) * numNeuronsNextLayer);
-
+	cudaMalloc(&deviceBiases, sizeof(double) * numNeuronsNextLayer);
+	
 	// copying host memory to device
 	cudaMemcpy(deviceWeights, weights, sizeof(double) * numNeuronsCurrentLayer*numNeuronsNextLayer, cudaMemcpyHostToDevice);
 	cudaMemcpy(deviceInputs, inputs, sizeof(double) * numNeuronsCurrentLayer, cudaMemcpyHostToDevice);
+	cudaMemcpy(deviceBiases, biases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyHostToDevice);
 
-	//calling cublas matrix multiply and adding biases vector
-	cublasHandle_t handle;
-	cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, numNeuronsNextLayer, 1, numNeuronsCurrentLayer, 1, deviceWeights, numNeuronsNextLayer, deviceInputs, numNeuronsCurrentLayer, 1, deviceOutput, numNeuronsNextLayer);
+	//calling cublas matrix multiply and adding biases vector (this does deviceWeights*deviceInputs + biasVector) and stores the result in the bias vector
+	cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, numNeuronsNextLayer, 1, numNeuronsCurrentLayer, 1, deviceWeights, numNeuronsNextLayer, deviceInputs, numNeuronsCurrentLayer, 1, deviceBiases, numNeuronsNextLayer);
 
 	// copying result of multiplication and addition back to output host memory
-	cudaMemcpy(output, deviceOutput, sizeof(double) * numNeuronsNextLayer, cudaMemcpyDeviceToHost);
+	cudaMemcpy(output, deviceBiases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyDeviceToHost);
 
 	//freeing device memory
 	cudaFree(deviceWeights);
 	cudaFree(deviceInputs);
-	cudaFree(deviceOutput);
+	cudaFree(deviceBiases);
 }
 
 // will need to add biases to matrix results if any -> we have as many biases as results
@@ -48,6 +48,25 @@ __global__ void biasAdd(double* results,double* biases, int numBiases) {
 	for (int i = blockIdx.x * gridDim.x + threadIdx.x; i < numBiases; i += gridDim.x * blockDim.x) {
 		results[i] += biases[i];
 	}
+}
+
+void biasAddWrapper(double* results, double* biases, int numBiases) {
+	double* deviceResults, * deviceBiases;
+	cudaMalloc(&deviceResults, sizeof(double) * numBiases);
+	cudaMalloc(&deviceBiases, sizeof(double) * numBiases);
+
+	cudaMemcpy(deviceResults, results, sizeof(double) * numBiases, cudaMemcpyHostToDevice);
+	cudaMemcpy(deviceBiases, biases, sizeof(double) * numBiases, cudaMemcpyHostToDevice);
+
+	// calling kernel
+	biasAdd << <200, 256 >> > (deviceResults, deviceBiases, numBiases);
+	
+	// copying output
+	cudaMemcpy(results, deviceResults, sizeof(double) * numBiases, cudaMemcpyDeviceToHost);
+
+	// freeing GPU memory
+	cudaFree(deviceResults);
+	cudaFree(deviceBiases);
 }
 
 // applies relu activation function to results
