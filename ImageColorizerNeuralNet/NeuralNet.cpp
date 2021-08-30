@@ -353,62 +353,38 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 	double dEdR = -(((double)(actualR/255))-outputRGB[0]);
 	double dEdG = -(((double)(actualG/255))-outputRGB[1]);
 	double dEdB = -(((double)(actualB / 255)) - outputRGB[2]);
+	double* currLayerOutput = (double*) malloc(sizeof(double) * 3);
+	memcpy(currLayerOutput, outputRGB, sizeof(double) * 3);
+	double* nextDerivatives = (double*) malloc(sizeof(double) * 3);
+	nextDerivatives[0] = dEdR;
+	nextDerivatives[1] = dEdG;
+	nextDerivatives[2] = dEdB;
 	for (int i = netToTrain->numLayers - 1; i >= 0; i--) {
 		layer* toConsider = netToTrain->neuralLayers[i];
-		switch (i)
-		{
-			case 1:
-				// if 1 then we are on sigmoid output layer
-				for (int j = 0; j < toConsider->numNeuronsNextLayer; j++) {
-					double derivativeToUse;
-					double output;
-					if (j == 0) { 
-						derivativeToUse = dEdR; 
-						output = outputRGB[0]; 
-					}
-					if (j == 1) {
-						derivativeToUse = dEdG; 
-						output = outputRGB[1];
-					}
-					if (j == 2) {
-						derivativeToUse = dEdB;
-						output = outputRGB[2];
-					}
-					for (int z = 0; z < toConsider->numNeuronsCurrentLayer; z++) {
-						double adjustment = derivativeToUse * output * (1 - output) * toConsider->neuronInputs[z];
-						toConsider->weightAdjustments[(j * toConsider->numNeuronsCurrentLayer) + z] = adjustment;
-					}
-				}
-				// adjusting bias term directly (not needed for any future updates)
-				for (int j = 0; j < toConsider->numNeuronsNextLayer; j++) {
-					double derivativeToUse;
-					double output;
-					if (j == 0) { 
-						derivativeToUse = dEdR; 
-						output = outputRGB[0]; 
-					}
-					if (j == 1) {
-						derivativeToUse = dEdG; 
-						output = outputRGB[1];
-					}
-					if (j == 2) {
-						derivativeToUse = dEdB;
-						output = outputRGB[2];
-					}
-					toConsider->biases[j] -= learningRate * derivativeToUse * output * (1 - output);
-				}
-				// maybe gpu implementation below if cpu too slow
-				//sigmoidOutputAdjustWeightsWrapper();
-				break;
-			case 0:
-				// if 0 then we are on the input layer
-
-				//maybe gpu implementation below if cpu too slow
-				//inputLayerAdjustWeightsWrapper();
-				break
+		toConsider->weightAdjustments = (double*)malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer * toConsider->numNeuronsNextLayer);
+		//backpropogating derivatives
+		double* nextNextDerivatives = (double*) malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer);
+		// if 1 then we are on sigmoid output layer
+		for (int j = 0; j < toConsider->numNeuronsNextLayer; j++) {
+			for (int z = 0; z < toConsider->numNeuronsCurrentLayer; z++) {
+				double adjustment = nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->neuronInputs[z];
+				toConsider->weightAdjustments[(j * toConsider->numNeuronsCurrentLayer) + z] = adjustment;
+				nextNextDerivatives[z] += nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->weightMatrix[(j * toConsider->numNeuronsCurrentLayer) + z];
+			}
+			//adjusting bias term directly (not needed for any future updates)
+			toConsider->biases[j] -= learningRate * nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]);
 		}
+		
+		if (i == 1) {
+			free(currLayerOutput);
+		}
+		
+		free(nextDerivatives);
+		currLayerOutput = toConsider->neuronInputs;
+		nextDerivatives = nextNextDerivatives;
+		// maybe gpu implementation below if cpu too slow
 	}
-	// now that we have populated the weight adjustments, we can go through each layer and make the adjustments required
+	// now that we have populated the weight adjustments, we can go through each layer and make the adjustments required, then we can free the adjustment memory
 }
 
 
