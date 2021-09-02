@@ -220,6 +220,8 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 net* initializeNeuralNet(int numLayers, int numInputsInData) {
 	net* toReturn = (net*)malloc(sizeof(net));
 	toReturn->numLayers = numLayers;
+	toReturn->numInputs = numInputsInData;
+	//toReturn->inputs = (double*)malloc(sizeof(double) * numInputsInData);
 	// allocating inner layers
 	layer** innerLayers = (layer**)malloc(sizeof(layer*) * numLayers);
 	for (int i = 0; i < numLayers; i++) {
@@ -252,7 +254,6 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		// initializing layer inputs
 		innerLayers[i]->neuronInputs = (double*) malloc(sizeof(double) * neuronsCurrentLayer);
 	}
-	toReturn->numInputs = numInputsInData;
 	toReturn->neuralLayers = innerLayers;
 
 	return toReturn;
@@ -314,9 +315,9 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	// we will use patch size 301x301 with the middle pixel being the pixel we wish to color
 	int patchSize = 301;
 	// we will use 2 layers for now (input with sigmoid hidden layer into output)
-	net* loadedNet = loadNeuralNet(2, patchSize * patchSize);
-	if (loadedNet == NULL) {
-		loadedNet = initializeNeuralNet(2, patchSize * patchSize);
+	net* netToTrain= loadNeuralNet(2, patchSize * patchSize);
+	if (netToTrain== NULL) {
+		netToTrain = initializeNeuralNet(2, patchSize * patchSize);
 	}
 	int numTrainingImages = getNumTrainingImages();
 	if (numTrainingImages == 0) {
@@ -329,30 +330,36 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	// apply it to our neural net to predict RGB values
 	// then do backpropogation
 	
-
-	// loading the neural net or creating a new one if weights txt files are not found
-	net* netToTrain = loadNeuralNet(2,patchSize * patchSize);
-
 	// getting random number in a range
 	random_device rando; 
 	mt19937 gen(rando()); 
-	uniform_int_distribution<> distr(0, numTrainingImages-1); 
+	uniform_int_distribution<> distr(1, numTrainingImages); 
 	int imageToPick = distr(gen);
 
 	// choosing a random picture
 	WIN32_FIND_DATA FindFileData;
-	HANDLE hFind;
+	HANDLE hFind=NULL;
 
-	hFind = FindFirstFile("./TestData", &FindFileData);
-	
-	for (int i = 0; i <= imageToPick; i++) {
-		FindNextFile(hFind, &FindFileData);
+	int currCount = 0;
+	string dirName = "TrainingData/";
+	while (currCount != imageToPick) {
+		if (hFind == NULL) {
+			hFind = FindFirstFile("./TrainingData/*\0", &FindFileData);
+		}
+		else {
+			FindNextFile(hFind, &FindFileData);
+		}
+		if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+			currCount++;
+		}
 	}
-
 	// now the data is pointed to the picture to choose
 
 	// using cimg to get data for the given picture
-	CImg<int> colorPicture(FindFileData.cFileName);
+	for (int i = 0;i < strlen(FindFileData.cFileName);i++) {
+		dirName.push_back(FindFileData.cFileName[i]);
+	}
+	CImg<int> colorPicture(dirName.c_str());
 
 	// calling CUDA kernel to get the black and white image
 	int* colorR = colorPicture.data();
