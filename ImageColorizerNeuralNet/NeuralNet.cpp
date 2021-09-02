@@ -253,6 +253,12 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		}
 		// initializing layer inputs
 		innerLayers[i]->neuronInputs = (double*) malloc(sizeof(double) * neuronsCurrentLayer);
+		// initializing layer biases
+		innerLayers[i]->biases = (double*)malloc(sizeof(double) * neuronsNextLayer);
+		// initially filling biases with 0
+		for (int j = 0;j < neuronsNextLayer;j++) {
+			innerLayers[i]->biases[j] = 0;
+		}
 	}
 	toReturn->neuralLayers = innerLayers;
 
@@ -409,6 +415,8 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 		backPropogate(netOutputRGB, actualR, actualG, actualB, netToTrain,learningRate);
 
 		free(netOutputRGB);
+		// freeing the input patch
+		free(netToTrain->inputs);
 		numEpochs++;
 		if (numEpochs == numTrainingSessions) {
 			// firstly writing the weights to the filesystem to "save" our training progress
