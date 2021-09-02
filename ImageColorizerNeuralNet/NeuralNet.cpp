@@ -8,35 +8,59 @@
 #include <CImg.h>
 #include <random>
 #include<fileapi.h>
+#include<tchar.h>
 
 // including cuda kernels
 #include "NeuralKernel.cuh"
 #include "imageKernel.cuh"
-#include <filesystem>
 
 using namespace std;
 using namespace cimg_library;
 
 int getNumTrainingImages() {
+	string searchName = "./TrainingData/*";
 	WIN32_FIND_DATA FindFileData;
 	HANDLE hFind;
 	int numPictures = 0;
-	hFind = FindFirstFile("./TrainingData\0", &FindFileData);
-	while (FindNextFile(hFind, &FindFileData) == TRUE) {
+	hFind = FindFirstFile(searchName.c_str(), &FindFileData);
+	if (hFind == INVALID_HANDLE_VALUE) {
+		cout << "OH NO TRAINING DATA NOT FOUND!\n";
+		return 0;
+	}
+	else {
 		numPictures++;
 	}
+	
+	while (FindNextFile(hFind, &FindFileData)) {
+		if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+			numPictures++;
+		}
+	}
+
 	FindClose(hFind);
 	return numPictures;
 }
 
 int getNumTestImages() {
+	string searchName = "./TestData/*";
 	WIN32_FIND_DATA FindFileData;
 	HANDLE hFind;
 	int numPictures = 0;
-	hFind = FindFirstFile("./TestData", &FindFileData);
-	while (FindNextFile(hFind, &FindFileData) == true) {
+	hFind = FindFirstFile(searchName.c_str(), &FindFileData);
+	if (hFind == INVALID_HANDLE_VALUE) {
+		cout << "OH NO TEST DATA NOT FOUND!\n";
+		return 0;
+	}
+	else {
 		numPictures++;
 	}
+	
+	while (FindNextFile(hFind, &FindFileData)) {
+		if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+			numPictures++;
+		}
+	}
+
 	FindClose(hFind);
 	return numPictures;
 }
@@ -296,7 +320,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	}
 	int numTrainingImages = getNumTrainingImages();
 	if (numTrainingImages == 0) {
-		cout << "OH NO!!!!!\n";
+		cout << "OH NO!!!!! We have an empty training set! Training aborted\n";
 		return;
 	}
 	// idea is to choose a random picture in the training data folder
