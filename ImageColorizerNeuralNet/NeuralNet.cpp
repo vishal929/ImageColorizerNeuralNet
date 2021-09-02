@@ -12,16 +12,118 @@
 // including cuda kernels
 #include "NeuralKernel.cuh"
 #include "imageKernel.cuh"
+#include <filesystem>
 
 using namespace std;
 using namespace cimg_library;
 
-// initializing a neural net based on weights
+int getNumTrainingImages() {
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
+	int numPictures = 0;
+	hFind = FindFirstFile("./TrainingData\0", &FindFileData);
+	while (FindNextFile(hFind, &FindFileData) == TRUE) {
+		numPictures++;
+	}
+	FindClose(hFind);
+	return numPictures;
+}
 
-// initializing a neural net based on random weights (before training)
+int getNumTestImages() {
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
+	int numPictures = 0;
+	hFind = FindFirstFile("./TestData", &FindFileData);
+	while (FindNextFile(hFind, &FindFileData) == true) {
+		numPictures++;
+	}
+	FindClose(hFind);
+	return numPictures;
+}
 
-// function to write weights back to txt file (for later loading/testing)
-// each layer will have a different txt file with weights
+double sigmoid(double input) {
+	return 1 / (1 + exp(-input));
+}
+
+// derivative calculation of sigmoid
+double sigmoidDerivative(double value) {
+	double sigmoided = sigmoid(value);
+	return sigmoided * (1 - sigmoided);
+}
+
+// we are doing a single sigmoid layer for now and we will get RGB output
+double* evaluateNeuralNet(double* patch, net* netToRun) {
+	// firstly setting the neural net inputs to the patch	
+	netToRun->inputs = patch;
+	double* output;
+	for (int i = 0; i < netToRun->numLayers; i++) {
+		layer* toConsider = netToRun->neuralLayers[i];
+		if (i == 0) {
+			// then we just copy the inputs to the layer inputs 
+			memcpy(toConsider->neuronInputs, netToRun->inputs, sizeof(double) * netToRun->numInputs);
+		}
+		// matrix multiply of weights with inputs and adding biases
+		output = (double*)malloc(sizeof(double) * toConsider->numNeuronsNextLayer);
+		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+
+		// running sigmoid of the output 
+		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
+
+		// adding the bias vector at the end with cuda kernel
+		// biasAddWrapper(output, toConsider->biases, toConsider->numNeuronsNextLayer);
+		if (i != netToRun->numLayers - 1) {
+			memcpy(netToRun->neuralLayers[i + 1]->neuronInputs, output, sizeof(double) * toConsider->numNeuronsNextLayer);
+			free(output);
+		}
+	}
+	//final 3 rgb values (before scaling by 255)
+	return output;
+}
+
+// function for propogating backwards through the neural net and adjusting the weights/biases
+void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain, double learningRate) {
+	// if we need to implement relu beforehand, I will need to adjust this and the evaluate 
+	// squared error of output (1/2 is for ease of taking derivatives with respect to inputs later)
+	double error = 0.5 * (pow(outputRGB[0] - (actualR / 255), 2) + pow(outputRGB[1] - (actualG / 255), 2) + pow(outputRGB[2] - (actualB / 255), 2));
+	// going backwards and adjusting the adjustweights matrix for each layer 
+	// partial derivatives for error
+	double dEdR = -(((double)(actualR / 255)) - outputRGB[0]);
+	double dEdG = -(((double)(actualG / 255)) - outputRGB[1]);
+	double dEdB = -(((double)(actualB / 255)) - outputRGB[2]);
+	double* currLayerOutput = (double*)malloc(sizeof(double) * 3);
+	memcpy(currLayerOutput, outputRGB, sizeof(double) * 3);
+	double* nextDerivatives = (double*)malloc(sizeof(double) * 3);
+	nextDerivatives[0] = dEdR;
+	nextDerivatives[1] = dEdG;
+	nextDerivatives[2] = dEdB;
+	for (int i = netToTrain->numLayers - 1; i >= 0; i--) {
+		layer* toConsider = netToTrain->neuralLayers[i];
+		toConsider->weightAdjustments = (double*)malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer * toConsider->numNeuronsNextLayer);
+		//backpropogating derivatives
+		double* nextNextDerivatives = (double*)malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer);
+		// if 1 then we are on sigmoid output layer
+		for (int j = 0; j < toConsider->numNeuronsNextLayer; j++) {
+			for (int z = 0; z < toConsider->numNeuronsCurrentLayer; z++) {
+				double adjustment = nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->neuronInputs[z];
+				toConsider->weightAdjustments[(j * toConsider->numNeuronsCurrentLayer) + z] = adjustment;
+				nextNextDerivatives[z] += nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->weightMatrix[(j * toConsider->numNeuronsCurrentLayer) + z];
+			}
+			//adjusting bias term directly (not needed for any future updates)
+			toConsider->biases[j] -= learningRate * nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]);
+		}
+
+		if (i == 1) {
+			free(currLayerOutput);
+		}
+
+		free(nextDerivatives);
+		currLayerOutput = toConsider->neuronInputs;
+		nextDerivatives = nextNextDerivatives;
+		// maybe gpu implementation below if cpu too slow
+		// void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate);
+	}
+	// now that we have populated the weight adjustments, we can go through each layer and make the adjustments required, then we can free the adjustment memory
+}
 
 // we may want to load a model from weights after training sessions so we do not "lose" progress
 net* loadNeuralNet(int numLayers, int numInputsInData) {
@@ -35,17 +137,20 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 	net* toReturn = (net*)malloc(sizeof(net));
 	toReturn->neuralLayers = (layer**)malloc(sizeof(layer*) * numLayers);
 	for (int i = 0; i < numLayers; i++) {
-		//allocating layers
-		toReturn->neuralLayers[i] = (layer*)malloc(sizeof(layer));
-	}
-	for (int i = 0; i < numLayers; i++) {
 		char* weightFileName = (char*)malloc(sizeof(char) * 13);
 		weightFileName[0] = '0' + i;
 		memcpy(weightFileName + 1, &"weights.txt\0", sizeof(char) * 12);
 		FILE* weightsFile = fopen(weightFileName, "r");
 		if (weightsFile == NULL && i == 0) {
 			// then weights dont exist
-			for (int j = 0; j < numLayers; j++) {
+			free(toReturn->neuralLayers);
+			free(toReturn);
+			free(weightFileName);
+			return NULL;
+		}
+		else if (weightsFile == NULL && i != 0) {
+			// incomplete net
+			for (int j = 0; j < i; j++) {
 				free(toReturn->neuralLayers[j]->biases);
 				free(toReturn->neuralLayers[j]->weightMatrix);
 				free(toReturn->neuralLayers[j]);
@@ -57,6 +162,7 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 		}
 		else {
 			// then extracting data into the layer struct
+			toReturn->neuralLayers[i] = (layer*)malloc(sizeof(layer));
 			int numNeurons, numNeuronsNextLayer;
 			fscanf(weightsFile, "%d %d\n", &numNeurons, &numNeuronsNextLayer);
 			toReturn->neuralLayers[i]->numNeuronsCurrentLayer = numNeurons;
@@ -189,6 +295,10 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 		loadedNet = initializeNeuralNet(2, patchSize * patchSize);
 	}
 	int numTrainingImages = getNumTrainingImages();
+	if (numTrainingImages == 0) {
+		cout << "OH NO!!!!!\n";
+		return;
+	}
 	// idea is to choose a random picture in the training data folder
 	// convert this image to black and white pixel values
 	// then choose a random pixel
@@ -202,7 +312,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	// getting random number in a range
 	random_device rando; 
 	mt19937 gen(rando()); 
-	uniform_int_distribution<> distr(0, numTrainingImages-1); // define the range
+	uniform_int_distribution<> distr(0, numTrainingImages-1); 
 	int imageToPick = distr(gen);
 
 	// choosing a random picture
@@ -268,7 +378,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 		backPropogate(netOutputRGB, actualR, actualG, actualB, netToTrain,learningRate);
 
 		free(netOutputRGB);
-
+		numEpochs++;
 		if (numEpochs == numTrainingSessions) {
 			// firstly writing the weights to the filesystem to "save" our training progress
 			printf("DONE WRITING WEIGHTS TO FILESYSTEM!\n");
@@ -314,111 +424,8 @@ void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
 	// calling evaluate neural net for every patch and then using CIMG to save the output color image
 }
 
-// we are doing a single sigmoid layer for now and we will get RGB output
-double* evaluateNeuralNet(double* patch, net* netToRun) {
-	// firstly setting the neural net inputs to the patch	
-	netToRun->inputs = patch;
-	double *output;
-	for (int i = 0; i < netToRun->numLayers; i++) {
-		layer* toConsider = netToRun->neuralLayers[i];
-		if (i == 0) {
-			// then we just copy the inputs to the layer inputs 
-			memcpy(toConsider->neuronInputs, netToRun->inputs, sizeof(double)*netToRun->numInputs);
-		}
-		// matrix multiply of weights with inputs and adding biases
-		output = (double*)malloc(sizeof(double) * toConsider->numNeuronsNextLayer);
-		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
-
-		// running sigmoid of the output 
-		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
-
-		// adding the bias vector at the end with cuda kernel
-		// biasAddWrapper(output, toConsider->biases, toConsider->numNeuronsNextLayer);
-		if (i != netToRun->numLayers - 1) {
-			memcpy(netToRun->neuralLayers[i + 1]->neuronInputs, output, sizeof(double) * toConsider->numNeuronsNextLayer);
-			free(output);
-		}
-	}
-	//final 3 rgb values (before scaling by 255)
-	return output;
-}
-
-// function for propogating backwards through the neural net and adjusting the weights/biases
-void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain, double learningRate) {
-	// if we need to implement relu beforehand, I will need to adjust this and the evaluate 
-	// squared error of output (1/2 is for ease of taking derivatives with respect to inputs later)
-	double error = 0.5 * (pow(outputRGB[0] - (actualR/255), 2) + pow(outputRGB[1] - (actualG/255), 2) + pow(outputRGB[2] - (actualB/255), 2));
-	// going backwards and adjusting the adjustweights matrix for each layer 
-	// partial derivatives for error
-	double dEdR = -(((double)(actualR/255))-outputRGB[0]);
-	double dEdG = -(((double)(actualG/255))-outputRGB[1]);
-	double dEdB = -(((double)(actualB / 255)) - outputRGB[2]);
-	double* currLayerOutput = (double*) malloc(sizeof(double) * 3);
-	memcpy(currLayerOutput, outputRGB, sizeof(double) * 3);
-	double* nextDerivatives = (double*) malloc(sizeof(double) * 3);
-	nextDerivatives[0] = dEdR;
-	nextDerivatives[1] = dEdG;
-	nextDerivatives[2] = dEdB;
-	for (int i = netToTrain->numLayers - 1; i >= 0; i--) {
-		layer* toConsider = netToTrain->neuralLayers[i];
-		toConsider->weightAdjustments = (double*)malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer * toConsider->numNeuronsNextLayer);
-		//backpropogating derivatives
-		double* nextNextDerivatives = (double*) malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer);
-		// if 1 then we are on sigmoid output layer
-		for (int j = 0; j < toConsider->numNeuronsNextLayer; j++) {
-			for (int z = 0; z < toConsider->numNeuronsCurrentLayer; z++) {
-				double adjustment = nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->neuronInputs[z];
-				toConsider->weightAdjustments[(j * toConsider->numNeuronsCurrentLayer) + z] = adjustment;
-				nextNextDerivatives[z] += nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->weightMatrix[(j * toConsider->numNeuronsCurrentLayer) + z];
-			}
-			//adjusting bias term directly (not needed for any future updates)
-			toConsider->biases[j] -= learningRate * nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]);
-		}
-		
-		if (i == 1) {
-			free(currLayerOutput);
-		}
-		
-		free(nextDerivatives);
-		currLayerOutput = toConsider->neuronInputs;
-		nextDerivatives = nextNextDerivatives;
-		// maybe gpu implementation below if cpu too slow
-	}
-	// now that we have populated the weight adjustments, we can go through each layer and make the adjustments required, then we can free the adjustment memory
-}
 
 
 
-int getNumTrainingImages() {
-	WIN32_FIND_DATA FindFileData;
-	HANDLE hFind;
-	int numPictures = 0;
-	hFind = FindFirstFile("./TrainingData", &FindFileData);
-	while (FindNextFile(hFind, &FindFileData) == true) {
-		numPictures++;
-	}
-	FindClose(hFind);
-	return numPictures;
-}
 
-int getNumTestImages() {
-	WIN32_FIND_DATA FindFileData;
-	HANDLE hFind;
-	int numPictures = 0;
-	hFind = FindFirstFile("./TestData", &FindFileData);
-	while (FindNextFile(hFind, &FindFileData) == true) {
-		numPictures++;
-	}
-	FindClose(hFind);
-	return numPictures;
-}
 
-double sigmoid(double input) {
-	return 1 / (1 + exp(-input));
-}
-
-// derivative calculation of sigmoid
-double sigmoidDerivative(double value) {
-	double sigmoided = sigmoid(value);
-	return sigmoided * (1 - sigmoided);
-}

@@ -7,7 +7,7 @@ typedef struct layer {
 	double* neuronInputs;
 	// each layer has a weight matrix for output for the next layer
 	double* weightMatrix;
-	// each layer has a matrix of adjustments needed for the backpropogation algorithm
+	// each layer has a matrix of adjustments needed for the backpropogation algorithm (this is only used when training on the GPU)
 	double* weightAdjustments;
 	// the number of rows in the weight matrix is the number of neurons in the next layer
 	int numNeuronsNextLayer;
@@ -30,3 +30,10 @@ typedef struct net {
 	// including number of inputs for batch training
 	int numInputs;
 } net;
+
+// function signatures
+void trainNeuralNet(int numTrainingSessions, double learningRate);
+void testNeuralNet();
+void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName);
+
+

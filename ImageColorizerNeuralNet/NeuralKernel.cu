@@ -82,8 +82,12 @@ __global__ void trainingHelper(net* toTrain, double** currLayerOutput, double** 
 				}
 			}
 			//adjusting the bias while we can
-			toConsider->biases[j] -= learningRate * nextDerivatives[i][j] * currLayerOutput[i][j] * (1 - currLayerOutput[i][j]);
+			if (tidX == 0 && tidY == 0) {
+				toConsider->biases[j] -= learningRate * nextDerivatives[i][j] * currLayerOutput[i][j] * (1 - currLayerOutput[i][j]);
+			}
 		}
+		//syncing threads before moving onto the next layer of backpropogation
+		__syncthreads();
 	}
 	__syncthreads();
 
@@ -102,16 +106,81 @@ __global__ void trainingHelper(net* toTrain, double** currLayerOutput, double** 
 
 }
 
-void trainingHelperWrapper(net* toTrain, double* netOutput, double learningRate) {
+void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate) {
+	double derivatives[3];
+	double dEdR = -(((double)(actualR / 255)) - netOutput[0]);
+	double dEdG = -(((double)(actualG / 255)) - netOutput[1]);
+	double dEdB = -(((double)(actualB / 255)) - netOutput[2]);
+	derivatives[0] = dEdR;
+	derivatives[1] = dEdG;
+	derivatives[2] = dEdB;
+	// end of getting initial partial derivatives
 	net* deviceNet;
-	double* deviceNetOutput;
+	double **currLayerOutput, ** nextDerivatives;
 	// allocating and copying the struct to the gpu
+	cudaMalloc(&deviceNet, sizeof(net));
+	cudaMemcpy(deviceNet, toTrain, sizeof(net), cudaMemcpyHostToDevice);
+	// allocating inner fields of the neural net
+	//cudaMalloc(&(deviceNet->inputs), sizeof(double) * toTrain->numInputs);
+	//cudaMemcpy(deviceNet->inputs, toTrain->inputs, sizeof(double) * toTrain->numInputs, cudaMemcpyHostToDevice);
+
+	//allocating stored outputs and learning rates we will need
+	cudaMalloc(&(currLayerOutput), sizeof(double*) * toTrain->numLayers);
+	cudaMalloc(&(nextDerivatives), sizeof(double*) * toTrain->numLayers);
+	// allocating layers
+	cudaMalloc(&(deviceNet->neuralLayers), sizeof(layer*) * toTrain->numLayers);
+	for (int i = 0; i < toTrain->numLayers; i++) {
+		cudaMalloc(&(deviceNet->neuralLayers[i]), sizeof(layer));
+		cudaMemcpy(deviceNet->neuralLayers[i], toTrain->neuralLayers[i], sizeof(layer), cudaMemcpyHostToDevice);
+		// copying inputs, outputs, biases, and allocating adjustments
+		cudaMalloc(&(deviceNet->neuralLayers[i]->neuronInputs), sizeof(double) * toTrain->neuralLayers[i]->numNeuronsCurrentLayer);
+		cudaMemcpy(deviceNet->neuralLayers[i]->neuronInputs, toTrain->neuralLayers[i]->neuronInputs, sizeof(double) * toTrain->neuralLayers[i]->numNeuronsCurrentLayer, cudaMemcpyHostToDevice);
+		cudaMalloc(&(deviceNet->neuralLayers[i]->weightMatrix), sizeof(double) * toTrain->neuralLayers[i]->numNeuronsCurrentLayer * toTrain->neuralLayers[i]->numNeuronsNextLayer);
+		cudaMemcpy(deviceNet->neuralLayers[i]->weightMatrix, toTrain->neuralLayers[i]->weightMatrix, sizeof(double) * toTrain->neuralLayers[i]->numNeuronsCurrentLayer * toTrain->neuralLayers[i]->numNeuronsNextLayer, cudaMemcpyHostToDevice);
+		cudaMalloc(&(deviceNet->neuralLayers[i]->biases), sizeof(double) * toTrain->neuralLayers[i]->numNeuronsNextLayer);
+		cudaMemcpy(deviceNet->neuralLayers[i]->biases, toTrain->neuralLayers[i]->biases, sizeof(double) * toTrain->neuralLayers[i]->numNeuronsNextLayer, cudaMemcpyHostToDevice);
+		// allocating adjustments for gpu to fill
+		cudaMalloc(&(deviceNet->neuralLayers[i]->weightAdjustments), sizeof(double) * toTrain->neuralLayers[i]->numNeuronsCurrentLayer * toTrain->neuralLayers[i]->numNeuronsNextLayer);
+		// allocating special memory for training
+		cudaMalloc(&(currLayerOutput[i]), sizeof(double) * toTrain->neuralLayers[i]->numNeuronsNextLayer);
+		cudaMalloc(&(nextDerivatives[i]), sizeof(double) * toTrain->neuralLayers[i]->numNeuronsNextLayer);
+		if (i==(toTrain->numLayers)-1){
+			cudaMemcpy(currLayerOutput[i], netOutput, sizeof(double) * 3, cudaMemcpyHostToDevice);
+			cudaMemcpy(nextDerivatives[i], derivatives, sizeof(double) * 3, cudaMemcpyHostToDevice);
+		} else {
+			cudaMemcpy(currLayerOutput[i], toTrain->neuralLayers[i + 1]->neuronInputs, sizeof(double) * toTrain->neuralLayers[i + 1]->numNeuronsCurrentLayer, cudaMemcpyHostToDevice);
+			cudaMemset(nextDerivatives[i], 0, sizeof(double) * toTrain->neuralLayers[i]->numNeuronsNextLayer);
+		}
+	}
 
 	// calling the kernel
 
-	//copying only the updated weights back to the CPU struct
 
-	// freeing memory
+	trainingHelper << <200, 256 >> > (deviceNet, currLayerOutput, nextDerivatives, learningRate);
+
+	// freeing memory and copying the updated weights back to the CPU struct -> do not need anything else 
+	for (int i = 0; i < toTrain->numLayers; i++) {
+		// copying updated weights back to cpu struct and then freeing inner objects
+		cudaMemcpy(deviceNet->neuralLayers[i]->weightMatrix, toTrain->neuralLayers[i]->weightMatrix, sizeof(double) * toTrain->neuralLayers[i]->numNeuronsCurrentLayer * toTrain->neuralLayers[i]->numNeuronsNextLayer, cudaMemcpyDeviceToHost);
+
+		cudaFree(nextDerivatives[i]);
+		cudaFree(currLayerOutput[i]);
+
+		cudaFree(deviceNet->neuralLayers[i]->weightAdjustments);
+		cudaFree(deviceNet->neuralLayers[i]->biases);
+		cudaFree(deviceNet->neuralLayers[i]->weightMatrix);
+		cudaFree(deviceNet->neuralLayers[i]->neuronInputs);
+
+		cudaFree(deviceNet->neuralLayers[i]);
+	}
+	
+	cudaFree(nextDerivatives);
+	cudaFree(currLayerOutput);
+
+	
+	// freeing outer net
+	cudaFree(deviceNet->neuralLayers);
+	cudaFree(deviceNet);
 }
 
 // applies relu activation function to results

@@ -6,6 +6,9 @@
 #include "imageKernel.cuh"
 #include <malloc.h>
 
+// adding our neural net logic
+#include "NeuralNet.h"
+
 using namespace cimg_library;
 
 /*Function Prototypes*/
@@ -23,13 +26,19 @@ void CPUShowImageFromPatch(char* blackWhiteImage, char* outputPatchName);
 
 int main(int argc, char* argv[]) {
 	// testing if we can load the testData jpg and then print out stuff about it using the CImg library and imagemagick
+	/*
 	GPUBlackAndWhiteCreation("testData.jpg", "blackAndWhite.jpg");
 	GPUConvertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
 	GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
-	// training the neural net trainNeuralNet()
-	// testing the neural net testNeuralNet()
+	*/
+	// training the neural net 
+	//100 training epochs with 0.03 learning rate
+	trainNeuralNet(100, 0.03);
+	// testing the neural net 
+	// testNeuralNet()
 	// evaluating the neural net on a given image evaluateNeuralNet()
+	// outputFromNeuralNet(blackWhiteImagePath, colorImagePath)
 	return 0;
 }
 

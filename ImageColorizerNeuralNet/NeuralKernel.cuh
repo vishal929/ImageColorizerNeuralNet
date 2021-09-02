@@ -5,5 +5,6 @@
 void layerMultiplicationWrapper(double* weights, double* inputs, double* biases, double* output, int numNeuronsNextLayer, int numNeuronsCurrentLayer);
 void sigmoidWrapper(double* inputs, int numInputs);
 void biasAddWrapper(double* results, double* biases, int numBiases);
+void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate);
 
 #endif 

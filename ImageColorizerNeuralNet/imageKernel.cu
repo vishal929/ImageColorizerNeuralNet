@@ -249,7 +249,8 @@ __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, i
 }
 
 void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int colDim) {
-    double* deviceInputPixels, * deviceOutputValues;
+    int* deviceInputPixels;
+    double* deviceOutputValues;
     cudaMalloc(&deviceInputPixels, sizeof(int) * rowDim * colDim);
     cudaMalloc(&deviceOutputValues, sizeof(double) * rowDim * colDim);
     //copying memory
@@ -257,7 +258,7 @@ void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int c
     // calling kernel
     pixelScale << <200, 256 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim);
     // copying output back to host memory
-    cudaMemcpy(outputValues, deviceOutputValues, sizeof(double) * rowDim * colDim);
+    cudaMemcpy(outputValues, deviceOutputValues, sizeof(double) * rowDim * colDim, cudaMemcpyDeviceToHost);
     //freeing gpu memory
     cudaFree(deviceInputPixels);
     cudaFree(deviceOutputValues);
