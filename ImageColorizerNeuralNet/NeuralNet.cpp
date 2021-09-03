@@ -143,10 +143,21 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 		free(nextDerivatives);
 		currLayerOutput = toConsider->neuronInputs;
 		nextDerivatives = nextNextDerivatives;
-		// maybe gpu implementation below if cpu too slow
-		// void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate);
+		
 	}
 	// now that we have populated the weight adjustments, we can go through each layer and make the adjustments required, then we can free the adjustment memory
+	for (int i = 0;i < netToTrain->numLayers;i++) {
+		layer* toConsider = netToTrain->neuralLayers[i];
+		for (int j = 0;j < toConsider->numNeuronsNextLayer;j++) {
+			for (int z = 0;z < toConsider->numNeuronsCurrentLayer;z++) {
+				toConsider->weightMatrix[(j*toConsider->numNeuronsCurrentLayer) + z] -= learningRate * toConsider->weightAdjustments[(j*toConsider->numNeuronsCurrentLayer) + z];
+			}
+		}
+		free(toConsider->weightAdjustments);
+	}
+
+	// maybe gpu implementation below if cpu too slow
+	// void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate);
 }
 
 // we may want to load a model from weights after training sessions so we do not "lose" progress
@@ -422,6 +433,8 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 			// firstly writing the weights to the filesystem to "save" our training progress
 			printf("DONE WRITING WEIGHTS TO FILESYSTEM!\n");
 			// we want to see the complete error of this image, if it is very high, we want to continue training
+			// 3 values for red error, green error, and blue error respectively
+			double completeError[3];
 			printf("ERROR FOR TRAINING IMAGE: %s: %lf\n", FindFileData.cFileName, 0.0);
 		} 
 
