@@ -160,6 +160,63 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 	// void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate);
 }
 
+// goes through every patch in the image, gets the error and adjusts the buffer accordingly
+void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* pictureToTest) {
+	const int patchSize = 301;
+	CImg<int> colorPicture(pictureToTest);
+
+	// calling CUDA kernel to get the black and white image
+	int* colorR = colorPicture.data();
+	int* colorG = colorR + (colorPicture.height() * colorPicture.width());
+	int* colorB = colorG + (colorPicture.height() * colorPicture.width());
+	int* bwBuffer = (int*)malloc(sizeof(int) * colorPicture.width() * colorPicture.height());
+
+	makeImageBlackAndWhiteWrapper(colorR, colorG, colorB, bwBuffer, colorPicture.height(), colorPicture.width());
+
+	/* Converting picture to 4k black and white and then picking a random pixel*/
+
+	int* newBWValues = (int*)malloc(sizeof(int) * 3840 * 2160);
+	// calling kernel wrapper for gpu function
+	makeBlackWhiteImage4KWrapper(bwBuffer, newBWValues, colorPicture.height(), colorPicture.width());
+	free(bwBuffer);
+	// need to also convert color image to 4k for comparison and backpropogation
+	int* newR = (int*)malloc(sizeof(int) * 3840 * 2160);
+	int* newG = (int*)malloc(sizeof(int) * 3840 * 2160);
+	int* newB = (int*)malloc(sizeof(int) * 3840 * 2160);
+	makeColorImage4kWrapper(colorR, colorG, colorB, newR, newG, newB, colorPicture.height(), colorPicture.width());
+
+	/*Scaling greyscale values to be between 0 and 1*/
+	double* scaledBWValues = (double*)malloc(sizeof(double) * 3840 * 2160);
+	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
+	free(newBWValues);
+
+	/*Going through every single pixel patch and getting the error*/
+	for (int i = 0;i < 3840;i++) {
+		for (int j = 0;j < 2160;j++) {
+			cout << "Testing row: " << i << " and column: " << j << " \n";
+			// getting the patch for this pixel
+			double* imagePatch = (double*)malloc(sizeof(double) * patchSize * patchSize);
+			getPatchWrapper(scaledBWValues, imagePatch, 3840, 2160, patchSize, 1, i, j);
+			// getting the output of this patch
+			double* netOutputRGB = evaluateNeuralNet(imagePatch, netToTrain);
+			int actualR = newR[(i* 2160) + j];
+			int actualG = newG[(i* 2160) + j];
+			int actualB = newB[(i* 2160) + j];
+			// adjusting error in buffers
+			RGBErrorBuffer[0] += pow(netOutputRGB[0] - (actualR / 255), 2);
+			RGBErrorBuffer[1] += pow(netOutputRGB[1] - (actualG / 255), 2);
+			RGBErrorBuffer[2] += pow(netOutputRGB[2] - (actualB / 255), 2);
+			//freeing memory for this patch
+			free(imagePatch);
+			free(netOutputRGB);
+		}
+	}
+
+	cout << "RED ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[0] << "\n";
+	cout << "GREEN ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[1] << "\n";
+	cout << "BLUE ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[2] << "\n";
+}
+
 // we may want to load a model from weights after training sessions so we do not "lose" progress
 net* loadNeuralNet(int numLayers, int numInputsInData) {
 	// we will check from "0weights.txt", "1weights.txt", etc. to find # of layers
@@ -431,11 +488,12 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 		numEpochs++;
 		if (numEpochs == numTrainingSessions) {
 			// firstly writing the weights to the filesystem to "save" our training progress
+			writeWeights(netToTrain);
 			printf("DONE WRITING WEIGHTS TO FILESYSTEM!\n");
 			// we want to see the complete error of this image, if it is very high, we want to continue training
 			// 3 values for red error, green error, and blue error respectively
-			double completeError[3];
-			printf("ERROR FOR TRAINING IMAGE: %s: %lf\n", FindFileData.cFileName, 0.0);
+			double completeError[3] = { 0,0,0 };
+			testSpecificNeuralNet(netToTrain, completeError, dirName.c_str());
 		} 
 
 	}
@@ -445,7 +503,8 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 }
 
 // function for using the neural net on testing data
-void testNeuralNet() {
+// adjusts the RGB buffer to contain the specific rgb errors
+void testNeuralNet(net* netToTrain, double* RGBErrorBuffer) {
 	int numTestImages = getNumTestImages();
 	// chooses a random image in the test data folder
 	// converts to black and white
@@ -470,6 +529,8 @@ void testNeuralNet() {
 	// getting error for this image
 	printf("ERROR FOR TESTING NET ON IMAGE %s: %lf\n", FindFileData.cFileName, 0.0);
 }
+
+
 
 //function for evaluating (given a black and white picture, output the color image after evaluation of patches in neural net)
 void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
