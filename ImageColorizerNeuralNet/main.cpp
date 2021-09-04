@@ -34,9 +34,11 @@ int main(int argc, char* argv[]) {
 	*/
 	// training the neural net 
 	//100 training epochs with 0.0003 learning rate
-	trainNeuralNet(500, 0.0003);
+	trainNeuralNet(200, 0.0003);
 	// testing the neural net 
 	// testNeuralNet()
+	// testing the neural net on a specific image
+	// testSpecificNeuralNet()
 	// evaluating the neural net on a given image evaluateNeuralNet()
 	// outputFromNeuralNet(blackWhiteImagePath, colorImagePath)
 	return 0;

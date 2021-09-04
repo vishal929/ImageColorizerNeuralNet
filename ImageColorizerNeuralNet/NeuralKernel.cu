@@ -193,8 +193,9 @@ __global__ void reluResults(double* inputs, int numInputs) {
 // applies sigmoid activation function to results
 __global__ void sigmoidResults(double* inputs, int numInputs) {
 	for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < numInputs; i += gridDim.x * blockDim.x) {
-		inputs[i] = 1 / (1 + exp(-inputs[i]));
+		inputs[i] = 1 / (1 + _CUDA_CMATH exp(-inputs[i]));
 	}
+	
 }
 
 void sigmoidWrapper(double* inputs, int numInputs) {

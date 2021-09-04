@@ -75,11 +75,30 @@ double sigmoidDerivative(double value) {
 	return sigmoided * (1 - sigmoided);
 }
 
+void CPULayerMultiplicationAndAddition(double* outputBuffer, double* weights, double* inputs, double* biases, int nextLayerNumNeurons, int currentLayerNumNeurons) {
+	// matrix vector multiplication
+	for (int i = 0;i < nextLayerNumNeurons; i++) {
+		for (int k = 0;k < currentLayerNumNeurons;k++) {
+			outputBuffer[i] += weights[(i * currentLayerNumNeurons) + k] * inputs[k];
+		}
+		// adding biases to output
+		outputBuffer[i] += biases[i];
+	}
+
+
+}
+
+void cpuSigmoid(double* bufferToSigmoid, int numElements) {
+	for (int i = 0;i < numElements;i++) {
+		bufferToSigmoid[i] = sigmoid(bufferToSigmoid[i]);
+	}
+}
+
 // we are doing a single sigmoid layer for now and we will get RGB output
 double* evaluateNeuralNet(double* patch, net* netToRun) {
 	// firstly setting the neural net inputs to the patch	
 	netToRun->inputs = patch;
-	double* output;
+	double* output = NULL;
 	for (int i = 0; i < netToRun->numLayers; i++) {
 		layer* toConsider = netToRun->neuralLayers[i];
 		if (i == 0) {
@@ -88,10 +107,21 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		}
 		// matrix multiply of weights with inputs and adding biases
 		output = (double*)malloc(sizeof(double) * toConsider->numNeuronsNextLayer);
+		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
+			output[i] = 0.0;
+		}
 		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		// CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		if (isnan(output[0])) {
+			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
+		}
 
 		// running sigmoid of the output 
 		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
+		// cpuSigmoid(output, toConsider->numNeuronsNextLayer);
+		if (isnan(output[0])) {
+			cout << "ISSUE WITH OUTPUT AFTER SIGMOID!\n";
+		}
 
 		// adding the bias vector at the end with cuda kernel
 		// biasAddWrapper(output, toConsider->biases, toConsider->numNeuronsNextLayer);
@@ -111,6 +141,7 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 	double error = 0.5 * (pow(outputRGB[0] - (((double)actualR) / 255), 2) + pow(outputRGB[1] - (((double)actualG) / 255), 2) + pow(outputRGB[2] - (((double)actualB) / 255), 2));
 	// going backwards and adjusting the adjustweights matrix for each layer 
 	// partial derivatives for error
+	
 	double dEdR = -((((double)actualR) / 255) - outputRGB[0]);
 	double dEdG = -((((double)actualG) / 255) - outputRGB[1]);
 	double dEdB = -((((double)actualB) / 255) - outputRGB[2]);
@@ -129,6 +160,7 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 		for (int j = 0; j < toConsider->numNeuronsNextLayer; j++) {
 			for (int z = 0; z < toConsider->numNeuronsCurrentLayer; z++) {
 				double adjustment = nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->neuronInputs[z];
+				
 				toConsider->weightAdjustments[(j * toConsider->numNeuronsCurrentLayer) + z] = adjustment;
 				nextNextDerivatives[z] += nextDerivatives[j] * currLayerOutput[j] * (1 - currLayerOutput[j]) * toConsider->weightMatrix[(j * toConsider->numNeuronsCurrentLayer) + z];
 			}
@@ -317,6 +349,8 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		for (int j = 0; j < innerLayers[i]->numNeuronsCurrentLayer * innerLayers[i]->numNeuronsNextLayer; j++) {
 			// random double between 0 and 0.25
 			innerLayers[i]->weightMatrix[j] =double( rand()) / double((RAND_MAX * 4));
+			// trying larger weights
+			// innerLayers[i]->weightMatrix[j] = 100;
 		}
 		// initializing layer inputs
 		innerLayers[i]->neuronInputs = (double*) malloc(sizeof(double) * neuronsCurrentLayer);
@@ -460,6 +494,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	free(newBWValues);
 	// now scaled BWValues holds the scaled image pixels
 	
+	
 	int numEpochs = 0;
 	while (numEpochs != numTrainingSessions) {
 		/* Picking a random patch to run through our neural net*/
@@ -472,13 +507,19 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 		double* imagePatch = (double*) malloc(sizeof(double) * patchSize * patchSize);
 		getPatchWrapper(scaledBWValues,imagePatch, 3840, 2160, patchSize, 1, rowOfPixel, colOfPixel);
 
+		
+
 		// running the patch through our neural net
 		double* netOutputRGB = evaluateNeuralNet(imagePatch, netToTrain);
+		if (isnan(netOutputRGB[0])) {
+			cout << "issue with output of evaluateNeuralNet!\n";
+		}
 		int actualR = newR[(rowOfPixel * 2160) + colOfPixel];
 		int actualG = newG[(rowOfPixel * 2160) + colOfPixel];
 		int actualB = newB[(rowOfPixel * 2160) + colOfPixel];
 
 		// going through backpropogation algorithm with the output
+		// BACKPROP RESULTING IN NAN VALUES INVESTIGATE WHY
 		backPropogate(netOutputRGB, actualR, actualG, actualB, netToTrain,learningRate);
 
 		free(netOutputRGB);
