@@ -33,8 +33,8 @@ int main(int argc, char* argv[]) {
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
 	*/
 	// training the neural net 
-	//100 training epochs with 0.03 learning rate
-	trainNeuralNet(100, 0.03);
+	//100 training epochs with 0.0003 learning rate
+	trainNeuralNet(500, 0.0003);
 	// testing the neural net 
 	// testNeuralNet()
 	// evaluating the neural net on a given image evaluateNeuralNet()

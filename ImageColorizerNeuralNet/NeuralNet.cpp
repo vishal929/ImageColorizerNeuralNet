@@ -108,12 +108,12 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain, double learningRate) {
 	// if we need to implement relu beforehand, I will need to adjust this and the evaluate 
 	// squared error of output (1/2 is for ease of taking derivatives with respect to inputs later)
-	double error = 0.5 * (pow(outputRGB[0] - (actualR / 255), 2) + pow(outputRGB[1] - (actualG / 255), 2) + pow(outputRGB[2] - (actualB / 255), 2));
+	double error = 0.5 * (pow(outputRGB[0] - (((double)actualR) / 255), 2) + pow(outputRGB[1] - (((double)actualG) / 255), 2) + pow(outputRGB[2] - (((double)actualB) / 255), 2));
 	// going backwards and adjusting the adjustweights matrix for each layer 
 	// partial derivatives for error
-	double dEdR = -(((double)(actualR / 255)) - outputRGB[0]);
-	double dEdG = -(((double)(actualG / 255)) - outputRGB[1]);
-	double dEdB = -(((double)(actualB / 255)) - outputRGB[2]);
+	double dEdR = -((((double)actualR) / 255) - outputRGB[0]);
+	double dEdG = -((((double)actualG) / 255) - outputRGB[1]);
+	double dEdB = -((((double)actualB) / 255) - outputRGB[2]);
 	double* currLayerOutput = (double*)malloc(sizeof(double) * 3);
 	memcpy(currLayerOutput, outputRGB, sizeof(double) * 3);
 	double* nextDerivatives = (double*)malloc(sizeof(double) * 3);
@@ -155,9 +155,8 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 		}
 		free(toConsider->weightAdjustments);
 	}
-
 	// maybe gpu implementation below if cpu too slow
-	// void trainingHelperWrapper(net* toTrain, double* netOutput, double actualR, double actualG, double actualB, double learningRate);
+	// trainingHelperWrapper(netToTrain,  outputRGB, actualR, actualG, actualB, learningRate);
 }
 
 // goes through every patch in the image, gets the error and adjusts the buffer accordingly
@@ -364,16 +363,16 @@ void writeWeights(net* neuralNet) {
 		for (int j = 0; j < currLayer->numNeuronsNextLayer; j++) {
 			for (int z = 0; z < currLayer->numNeuronsCurrentLayer; z++) {
 				if (z != currLayer->numNeuronsCurrentLayer-1) {
-					fprintf(layer_weights,"%lf ", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
+					fprintf(layer_weights,"%.3lf ", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
 				}
 				else {
-					fprintf(layer_weights,"%lf\n", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
+					fprintf(layer_weights,"%.3lf\n", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
 				}
 			}
 		}
 		// writing biases
 		for (int j = 0; j < currLayer->numNeuronsNextLayer; j++) {
-			fprintf(layer_weights, "%lf\n", currLayer->biases[j]);
+			fprintf(layer_weights, "%.3lf\n", currLayer->biases[j]);
 		}
 		// closing the file since writing is done
 		fclose(layer_weights);
