@@ -3,7 +3,8 @@
 #include "device_launch_parameters.h"
 
 #include <stdio.h>
-#include <cuda/std/cmath>
+#include "cuda/std/cmath";
+#include "cudaErrorHandler.cuh";
 
 
 // purpose of this kernel is to do a black and white transformation on a color image, represented by the colorImage array of color pixel values
@@ -22,23 +23,27 @@ __global__ void makeImageBlackAndWhite(int* colorR, int* colorG, int* colorB, in
 void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* bwImage, int rowDim, int colDim) {
     // first allocating gpu memory
     int* deviceR, * deviceG, * deviceB, * deviceBWImage;
-    cudaMalloc(&deviceR, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceG, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceB, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceBWImage, sizeof(int) * rowDim * colDim);
+    cudaErrorCheck(cudaMalloc(&deviceR, sizeof(int) * rowDim * colDim));
+    
+    cudaErrorCheck(cudaMalloc(&deviceG, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceB, sizeof(int) * rowDim * colDim));
+    
+
+    cudaErrorCheck(cudaMalloc(&deviceBWImage, sizeof(int) * rowDim * colDim));
     // copying from host to device
-    cudaMemcpy(deviceR, colorR, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaErrorCheck(cudaMemcpy(deviceR, colorR, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel (for a 1080p image, we can launch 8100 blocks with 256 threads each)
     makeImageBlackAndWhite<< <3000, 256 >> >(deviceR, deviceG, deviceB, deviceBWImage, rowDim, colDim);
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("%s\n", cudaGetErrorString(err));
+    cudaError_t lastError = cudaGetLastError();
+    if (lastError != cudaSuccess) {
+        printf("error with make image black and white wrapper %s\n", cudaGetErrorString(lastError));
     }
-    cudaDeviceSynchronize();
+    
     // copying result to host mem
-    cudaMemcpy(bwImage, deviceBWImage, sizeof(int) * rowDim * colDim, cudaMemcpyDeviceToHost);
+    cudaErrorCheck(cudaMemcpy(bwImage, deviceBWImage, sizeof(int) * rowDim * colDim, cudaMemcpyDeviceToHost));
+    
     // freeing allocated gpu memory
     cudaFree(deviceR);
     cudaFree(deviceG);
@@ -74,27 +79,31 @@ __global__ void makeColorImage4K(int* colorR, int* colorG, int* colorB, int* new
 void makeColorImage4kWrapper(int* colorR, int* colorG, int* colorB, int* newR, int* newG,  int* newB, int rowDim, int colDim) {
     // first allocating gpu memory
     int* deviceR, * deviceG, * deviceB, * deviceNewR, * deviceNewG, * deviceNewB;
-    cudaMalloc(&deviceR, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceG, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceB, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceNewR, sizeof(int) * 3840 * 2160);
-    cudaMalloc(&deviceNewG, sizeof(int) * 3840 * 2160);
-    cudaMalloc(&deviceNewB, sizeof(int) * 3840 * 2160);
+    cudaErrorCheck(cudaMalloc(&deviceR, sizeof(int) * rowDim * colDim));
+    
+    cudaErrorCheck(cudaMalloc(&deviceG, sizeof(int) * rowDim * colDim));
+    
+    cudaErrorCheck(cudaMalloc(&deviceB, sizeof(int) * rowDim * colDim));
+    
+    cudaErrorCheck(cudaMalloc(&deviceNewR, sizeof(int) * 3840 * 2160));
+    
+    cudaErrorCheck(cudaMalloc(&deviceNewG, sizeof(int) * 3840 * 2160));
+    
+    cudaErrorCheck(cudaMalloc(&deviceNewB, sizeof(int) * 3840 * 2160));
     // copying from host to device
-    cudaMemcpy(deviceR, colorR, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
-    cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaErrorCheck(cudaMemcpy(deviceR, colorR, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel
     makeColorImage4K << <3000, 256>> > (deviceR, deviceG, deviceB, deviceNewR, deviceNewG, deviceNewB, rowDim, colDim);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        printf("%s\n", cudaGetErrorString(err));
+        printf("error with making color image 4k wrapper: %s\n", cudaGetErrorString(err));
     }
-    cudaDeviceSynchronize();
     // copying result to host mem
-    cudaMemcpy(newR, deviceNewR, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
-    cudaMemcpy(newG, deviceNewG, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
-    cudaMemcpy(newB, deviceNewB, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
+    cudaErrorCheck(cudaMemcpy(newR, deviceNewR, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost));
+    cudaErrorCheck(cudaMemcpy(newG, deviceNewG, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost));
+    cudaErrorCheck(cudaMemcpy(newB, deviceNewB, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost));
     // freeing allocated gpu memory
     cudaFree(deviceR);
     cudaFree(deviceG);
@@ -128,22 +137,21 @@ __global__ void makeBlackWhiteImage4K(int* bwValues, int* newBWValues, int rowDi
 void makeBlackWhiteImage4KWrapper(int* bwValues, int* newBWValues, int rowDim, int colDim) {
     // first allocating gpu memory
     int* deviceBWValues, * deviceNewBWValues;
-    cudaMalloc(&deviceBWValues, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceNewBWValues, sizeof(int) * 3840 * 2160);
+    cudaErrorCheck(cudaMalloc(&deviceBWValues, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceNewBWValues, sizeof(int) * 3840 * 2160));
     // copying from host to device
-    cudaMemcpy(deviceBWValues, bwValues, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaErrorCheck(cudaMemcpy(deviceBWValues, bwValues, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel
     makeBlackWhiteImage4K << <3000, 256>> > (deviceBWValues, deviceNewBWValues, rowDim, colDim);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        printf("%s\n", cudaGetErrorString(err));
+        printf("error with make black and white image 4k wrapper: %s\n", cudaGetErrorString(err));
     }
-    cudaDeviceSynchronize();
     // copying result to host mem
-    cudaMemcpy(newBWValues, deviceNewBWValues, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost);
+    cudaErrorCheck(cudaMemcpy(newBWValues, deviceNewBWValues, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost));
     // freeing allocated gpu memory
-    cudaFree(deviceNewBWValues);
-    cudaFree(deviceBWValues);
+    cudaErrorCheck(cudaFree(deviceNewBWValues));
+    cudaErrorCheck(cudaFree(deviceBWValues));
     // now the result array should be stored in newBWValues
 }
 
@@ -217,7 +225,9 @@ __global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, in
 		}
 		else {
 			// then this pixel is in the original image, we will copy its value to the patch 
-			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*shiftedRow) + shiftedCol], double(feature));
+            // only using standard features for now
+			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*shiftedRow) + shiftedCol], (double)feature);
+            //imagePatch[(patchSize * row) + col] = imagePixels[(rowDim * shiftedRow) + shiftedCol];
 		}
     }
 }
@@ -226,14 +236,18 @@ __global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, in
 void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int colDim, int patchSize, int features, int pixelRow, int pixelCol) {
     //allocating device memory
     double *deviceImagePixels, *deviceImagePatch;
-    cudaMalloc(&deviceImagePixels, sizeof(double) * rowDim * colDim);
-    cudaMalloc(&deviceImagePatch, sizeof(double) * patchSize * patchSize * features);
+    cudaErrorCheck(cudaMalloc(&deviceImagePixels, sizeof(double) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceImagePatch, sizeof(double) * patchSize * patchSize * features));
     // copying memory
-    cudaMemcpy(deviceImagePixels, imagePixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaErrorCheck(cudaMemcpy(deviceImagePixels, imagePixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel
     getPatch<<<200, 256>>>(deviceImagePixels, deviceImagePatch, rowDim, colDim, patchSize, features, pixelRow, pixelCol);
+    cudaError_t lastError = cudaGetLastError();
+    if (lastError != cudaSuccess) {
+        printf("error with patch wrapper %s\n", cudaGetErrorString(lastError));
+    }
     // copying result back to host memory
-    cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize * features, cudaMemcpyDeviceToHost);
+    cudaErrorCheck(cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize * features, cudaMemcpyDeviceToHost));
     //freeing gpu memory
     cudaFree(deviceImagePixels);
     cudaFree(deviceImagePatch);
@@ -251,14 +265,18 @@ __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, i
 void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int colDim) {
     int* deviceInputPixels;
     double* deviceOutputValues;
-    cudaMalloc(&deviceInputPixels, sizeof(int) * rowDim * colDim);
-    cudaMalloc(&deviceOutputValues, sizeof(double) * rowDim * colDim);
+    cudaErrorCheck(cudaMalloc(&deviceInputPixels, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceOutputValues, sizeof(double) * rowDim * colDim));
     //copying memory
-    cudaMemcpy(deviceInputPixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice);
+    cudaErrorCheck(cudaMemcpy(deviceInputPixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling kernel
     pixelScale << <200, 256 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim);
+    cudaError_t lastError = cudaGetLastError();
+    if (lastError != cudaSuccess) {
+        printf("error with get patch wrapper %s\n", cudaGetErrorString(lastError));
+    }
     // copying output back to host memory
-    cudaMemcpy(outputValues, deviceOutputValues, sizeof(double) * rowDim * colDim, cudaMemcpyDeviceToHost);
+    cudaErrorCheck(cudaMemcpy(outputValues, deviceOutputValues, sizeof(double) * rowDim * colDim, cudaMemcpyDeviceToHost));
     //freeing gpu memory
     cudaFree(deviceInputPixels);
     cudaFree(deviceOutputValues);

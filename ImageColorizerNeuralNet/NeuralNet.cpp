@@ -110,8 +110,8 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
 			output[i] = 0.0;
 		}
-		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
-		// CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		// layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
 		}
@@ -131,6 +131,11 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		}
 	}
 	//final 3 rgb values (before scaling by 255)
+	if (output == NULL) {
+		if (netToRun->numLayers == 0) {
+			cout << "FOUND THE CULPRIT!\n";
+		}
+	}
 	return output;
 }
 
@@ -493,7 +498,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
 	free(newBWValues);
 	// now scaled BWValues holds the scaled image pixels
-	
+		
 	
 	int numEpochs = 0;
 	while (numEpochs != numTrainingSessions) {

@@ -7,6 +7,7 @@
 #include <cublas.h>
 
 #include "NeuralNet.h"
+#include "cudaErrorHandler.cuh"
 
 //big idea for a neural net: 
 // input will be greyscale values for every single pixel in the 4k image
@@ -18,29 +19,72 @@
 // evaluating inputs for every neuron in a layer and setting the second layer output
 // this is accomplished with matrix multiplication
 
+
+__global__ void matrixTranspose(double* input, double* output, int inputRows, int inputColumns) {
+	int id = blockDim.x * blockIdx.x + threadIdx.x;
+	for (int i = id;i < inputRows * inputColumns;i += gridDim.x * blockDim.x) {
+		int row = i/inputRows;
+		int column = i-(row*inputColumns);
+		output[(column * inputRows) + row] = input[(row * inputColumns) + column];
+	}
+}
+
 // we will use cuBLAS NVIDIA api for fast matrix multiplication 
 void layerMultiplicationWrapper(double* weights, double* inputs, double* biases, double* output, int numNeuronsNextLayer, int numNeuronsCurrentLayer) {
 	//wrapping multiplication with cublas	
 	double* deviceWeights, * deviceInputs, * deviceBiases;
+	cublasHandle_t handle;
 	cudaMalloc(&deviceWeights, sizeof(double) * numNeuronsNextLayer * numNeuronsCurrentLayer);
 	cudaMalloc(&deviceInputs, sizeof(double) * numNeuronsCurrentLayer);	
 	cudaMalloc(&deviceBiases, sizeof(double) * numNeuronsNextLayer);
-	
-	// copying host memory to device
-	cudaMemcpy(deviceWeights, weights, sizeof(double) * numNeuronsCurrentLayer*numNeuronsNextLayer, cudaMemcpyHostToDevice);
-	cudaMemcpy(deviceInputs, inputs, sizeof(double) * numNeuronsCurrentLayer, cudaMemcpyHostToDevice);
-	cudaMemcpy(deviceBiases, biases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyHostToDevice);
 
+	//copying input matrices to a column order representation
+	double* weightTranspose = (double*) malloc(sizeof(double) * numNeuronsNextLayer*numNeuronsCurrentLayer);
+	double* inputTranspose = (double*) malloc(sizeof(double) * numNeuronsCurrentLayer);
+	double* biasesTranspose = (double*) malloc(sizeof(double)* numNeuronsNextLayer);
+
+	//calling transpose kernels
+	matrixTranspose << <200, 256 >> > (weights, weightTranspose, numNeuronsNextLayer, numNeuronsCurrentLayer);
+	matrixTranspose << <200, 256 >> > (inputs, inputTranspose, numNeuronsCurrentLayer, 1);
+	matrixTranspose << <200, 256 >> > (biases, biasesTranspose, numNeuronsNextLayer, 1);
+	
+	int m = numNeuronsNextLayer;
+	int k = numNeuronsCurrentLayer;
+	int n = 1;
+	double identityScalar = 1.0;
+
+	//initializing cublas handle and setting matrices
+	cublasCreate_v2(&handle);
+	cublasSetMatrix(m,k, sizeof(double),weightTranspose,m,deviceWeights,m);
+	cublasSetMatrix(k,n, sizeof(double), inputTranspose, k, deviceInputs,k);
+	cublasSetMatrix(m,n, sizeof(double), biasesTranspose, m, deviceBiases, m);
 	//calling cublas matrix multiply and adding biases vector (this does deviceWeights*deviceInputs + biasVector) and stores the result in the bias vector
-	cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, numNeuronsNextLayer, 1, numNeuronsCurrentLayer, 1, deviceWeights, numNeuronsNextLayer, deviceInputs, numNeuronsCurrentLayer, 1, deviceBiases, numNeuronsNextLayer);
+	
+	cublasDgemm_v2(handle, CUBLAS_OP_N, CUBLAS_OP_N, m,n,k,&identityScalar,deviceWeights,m,deviceInputs,k,&identityScalar,deviceBiases,m);
+
+
+	
 
 	// copying result of multiplication and addition back to output host memory
-	cudaMemcpy(output, deviceBiases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyDeviceToHost);
+	cublasGetMatrix(m, n, sizeof(double), deviceBiases, m, output, m);
+	// cudaMemcpy(output, deviceBiases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyDeviceToHost);
+
+	//destroying handle
+	cublasDestroy_v2(handle);
+
+	cudaError_t lastError = cudaGetLastError();
+	if (lastError != cudaSuccess) {
+		printf("error with layer multiplication wrapper %s\n", cudaGetErrorString(lastError));
+	}
 
 	//freeing device memory
 	cudaFree(deviceWeights);
 	cudaFree(deviceInputs);
 	cudaFree(deviceBiases);
+	//freeing transposes
+	free(weightTranspose);
+	free(biasesTranspose);
+	free(inputTranspose);
 }
 
 // will need to add biases to matrix results if any -> we have as many biases as results
@@ -193,20 +237,23 @@ __global__ void reluResults(double* inputs, int numInputs) {
 // applies sigmoid activation function to results
 __global__ void sigmoidResults(double* inputs, int numInputs) {
 	for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < numInputs; i += gridDim.x * blockDim.x) {
-		inputs[i] = 1 / (1 + _CUDA_CMATH exp(-inputs[i]));
+		inputs[i] = 1.0 / (1.0 + exp(-(inputs[i])));
+		//output[i] = 90.5;
 	}
 	
 }
 
 void sigmoidWrapper(double* inputs, int numInputs) {
 	double* deviceInputs;
-	cudaMalloc(&deviceInputs, sizeof(double) * numInputs);
-
-	cudaMemcpy(deviceInputs, inputs, sizeof(double) * numInputs, cudaMemcpyHostToDevice);
-
-	sigmoidResults << <200, 256 >> > (deviceInputs, numInputs);
+	cudaErrorCheck(cudaMalloc(&deviceInputs, sizeof(double) * numInputs));
+	cudaErrorCheck(cudaMemcpy(deviceInputs, inputs, sizeof(double) * numInputs, cudaMemcpyHostToDevice));
+	sigmoidResults << <200, 256 >> > (deviceInputs , numInputs);
+	cudaError_t lastError = cudaGetLastError();
+	if (lastError != cudaSuccess) {
+		printf( "error with sigmoid wrapper %s\n",cudaGetErrorString(lastError));
+	}
 	//copying back to host and freeing memory
-	cudaMemcpy(inputs, deviceInputs, sizeof(double) * numInputs, cudaMemcpyDeviceToHost);
+	cudaErrorCheck(cudaMemcpy(inputs, deviceInputs, sizeof(double) * numInputs, cudaMemcpyDeviceToHost));
 	cudaFree(deviceInputs);
 }
 
