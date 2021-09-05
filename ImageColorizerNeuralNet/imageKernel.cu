@@ -45,10 +45,10 @@ void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* b
     cudaErrorCheck(cudaMemcpy(bwImage, deviceBWImage, sizeof(int) * rowDim * colDim, cudaMemcpyDeviceToHost));
     
     // freeing allocated gpu memory
-    cudaFree(deviceR);
-    cudaFree(deviceG);
-    cudaFree(deviceB);
-    cudaFree(deviceBWImage);
+    cudaErrorCheck(cudaFree(deviceR));
+    cudaErrorCheck(cudaFree(deviceG));
+    cudaErrorCheck(cudaFree(deviceB));
+    cudaErrorCheck(cudaFree(deviceBWImage));
     // now the result black and white image should be stored in the host bwImage pointer
 }
 
@@ -105,12 +105,12 @@ void makeColorImage4kWrapper(int* colorR, int* colorG, int* colorB, int* newR, i
     cudaErrorCheck(cudaMemcpy(newG, deviceNewG, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost));
     cudaErrorCheck(cudaMemcpy(newB, deviceNewB, sizeof(int) * 3840 * 2160, cudaMemcpyDeviceToHost));
     // freeing allocated gpu memory
-    cudaFree(deviceR);
-    cudaFree(deviceG);
-    cudaFree(deviceB);
-    cudaFree(deviceNewR);
-    cudaFree(deviceNewG);
-    cudaFree(deviceNewB);
+    cudaErrorCheck(cudaFree(deviceR));
+    cudaErrorCheck(cudaFree(deviceG));
+    cudaErrorCheck(cudaFree(deviceB));
+    cudaErrorCheck(cudaFree(deviceNewR));
+    cudaErrorCheck(cudaFree(deviceNewG));
+    cudaErrorCheck(cudaFree(deviceNewB));
     // now the result arrays should be stored in the newR, newG, and newB pointers
 }
 
@@ -211,6 +211,7 @@ __global__ void getPatches(double* imagePixels, double** imagePatches, int rowDi
 // similar to getPatches, but gets a single patch based on a pixels row and column-> this will help for stochastic gradient descent
 __global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, int colDim, int patchSize, int features, int pixelRow, int pixelCol) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    /* FORGET ABOUT FEATURES FOR NOW
     for (int i = tid; i < patchSize * patchSize * features; i += gridDim.x * blockDim.x) {
         // filling the associated patch array in global memory
         int row = (i / patchSize);
@@ -229,6 +230,24 @@ __global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, in
 			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*shiftedRow) + shiftedCol], (double)feature);
             //imagePatch[(patchSize * row) + col] = imagePixels[(rowDim * shiftedRow) + shiftedCol];
 		}
+    } */
+
+    for (int i = tid;i < patchSize * patchSize * features; i += gridDim.x * blockDim.x) {
+        int row = (i / patchSize);
+        int col = (i % patchSize);
+        int shiftedRow = pixelRow - (patchSize/2) + row;
+        int shiftedCol = pixelCol - (patchSize/2) + col;
+        // getting the feature -> x^1 or x^2 etc.
+        int feature = ((i / (patchSize * patchSize)) + 1);
+        if (shiftedRow < 0 || shiftedRow >= rowDim || shiftedCol < 0 || shiftedCol >= colDim) {
+			// then this pixel is out of bounds, we should color it black in the patch
+			imagePatch[(patchSize * row) + col] = 0;
+		}
+		else {
+			// then this pixel is in the original image, we will copy its value to the patch 
+            // only using standard features for now
+			imagePatch[(patchSize * row) + col] = pow(imagePixels[(colDim*shiftedRow) + shiftedCol], features);
+		}
     }
 }
 
@@ -246,8 +265,7 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
     if (lastError != cudaSuccess) {
         printf("error with patch wrapper %s\n", cudaGetErrorString(lastError));
     }
-    // copying result back to host memory
-    cudaErrorCheck(cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize * features, cudaMemcpyDeviceToHost));
+    cudaErrorCheck(cudaMemcpy(imagePatch, deviceImagePatch, sizeof(double) * patchSize * patchSize*features , cudaMemcpyDeviceToHost));
     //freeing gpu memory
     cudaFree(deviceImagePixels);
     cudaFree(deviceImagePatch);
@@ -278,8 +296,8 @@ void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int c
     // copying output back to host memory
     cudaErrorCheck(cudaMemcpy(outputValues, deviceOutputValues, sizeof(double) * rowDim * colDim, cudaMemcpyDeviceToHost));
     //freeing gpu memory
-    cudaFree(deviceInputPixels);
-    cudaFree(deviceOutputValues);
+    cudaErrorCheck(cudaFree(deviceInputPixels));
+    cudaErrorCheck(cudaFree(deviceOutputValues));
 }
 
 __global__ void addFeature(double* inputPixels, double* outputValues, int rowDim, int colDim, int featureNumber) {

@@ -38,16 +38,6 @@ void layerMultiplicationWrapper(double* weights, double* inputs, double* biases,
 	cudaMalloc(&deviceInputs, sizeof(double) * numNeuronsCurrentLayer);	
 	cudaMalloc(&deviceBiases, sizeof(double) * numNeuronsNextLayer);
 
-	//copying input matrices to a column order representation
-	double* weightTranspose = (double*) malloc(sizeof(double) * numNeuronsNextLayer*numNeuronsCurrentLayer);
-	double* inputTranspose = (double*) malloc(sizeof(double) * numNeuronsCurrentLayer);
-	double* biasesTranspose = (double*) malloc(sizeof(double)* numNeuronsNextLayer);
-
-	//calling transpose kernels
-	matrixTranspose << <200, 256 >> > (weights, weightTranspose, numNeuronsNextLayer, numNeuronsCurrentLayer);
-	matrixTranspose << <200, 256 >> > (inputs, inputTranspose, numNeuronsCurrentLayer, 1);
-	matrixTranspose << <200, 256 >> > (biases, biasesTranspose, numNeuronsNextLayer, 1);
-	
 	int m = numNeuronsNextLayer;
 	int k = numNeuronsCurrentLayer;
 	int n = 1;
@@ -55,9 +45,9 @@ void layerMultiplicationWrapper(double* weights, double* inputs, double* biases,
 
 	//initializing cublas handle and setting matrices
 	cublasCreate_v2(&handle);
-	cublasSetMatrix(m,k, sizeof(double),weightTranspose,m,deviceWeights,m);
-	cublasSetMatrix(k,n, sizeof(double), inputTranspose, k, deviceInputs,k);
-	cublasSetMatrix(m,n, sizeof(double), biasesTranspose, m, deviceBiases, m);
+	cublasSetMatrix(m,k, sizeof(double),weights,m,deviceWeights,m);
+	cublasSetMatrix(k,n, sizeof(double), inputs, k, deviceInputs,k);
+	cublasSetMatrix(m,n, sizeof(double), biases, m, deviceBiases, m);
 	//calling cublas matrix multiply and adding biases vector (this does deviceWeights*deviceInputs + biasVector) and stores the result in the bias vector
 	
 	cublasDgemm_v2(handle, CUBLAS_OP_N, CUBLAS_OP_N, m,n,k,&identityScalar,deviceWeights,m,deviceInputs,k,&identityScalar,deviceBiases,m);
@@ -81,10 +71,6 @@ void layerMultiplicationWrapper(double* weights, double* inputs, double* biases,
 	cudaFree(deviceWeights);
 	cudaFree(deviceInputs);
 	cudaFree(deviceBiases);
-	//freeing transposes
-	free(weightTranspose);
-	free(biasesTranspose);
-	free(inputTranspose);
 }
 
 // will need to add biases to matrix results if any -> we have as many biases as results

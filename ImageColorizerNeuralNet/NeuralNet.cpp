@@ -110,7 +110,7 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
 			output[i] = 0.0;
 		}
-		// layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		//layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
@@ -502,6 +502,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 	
 	int numEpochs = 0;
 	while (numEpochs != numTrainingSessions) {
+		cout << "on epoch number: " << numEpochs << "\n";
 		/* Picking a random patch to run through our neural net*/
 		random_device rando;
 		mt19937 gen(rando());
@@ -529,7 +530,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 
 		free(netOutputRGB);
 		// freeing the input patch
-		free(netToTrain->inputs);
+		free(imagePatch);
 		numEpochs++;
 		if (numEpochs == numTrainingSessions) {
 			// firstly writing the weights to the filesystem to "save" our training progress
