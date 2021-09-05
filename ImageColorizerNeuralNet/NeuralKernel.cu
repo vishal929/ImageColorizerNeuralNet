@@ -34,29 +34,45 @@ void layerMultiplicationWrapper(double* weights, double* inputs, double* biases,
 	//wrapping multiplication with cublas	
 	double* deviceWeights, * deviceInputs, * deviceBiases;
 	cublasHandle_t handle;
-	cudaMalloc(&deviceWeights, sizeof(double) * numNeuronsNextLayer * numNeuronsCurrentLayer);
-	cudaMalloc(&deviceInputs, sizeof(double) * numNeuronsCurrentLayer);	
-	cudaMalloc(&deviceBiases, sizeof(double) * numNeuronsNextLayer);
+	cudaErrorCheck(cudaMalloc(&deviceWeights, sizeof(double) * numNeuronsNextLayer * numNeuronsCurrentLayer));
+	cudaErrorCheck(cudaMalloc(&deviceInputs, sizeof(double) * numNeuronsCurrentLayer));	
+	cudaErrorCheck(cudaMalloc(&deviceBiases, sizeof(double) * numNeuronsNextLayer));
 
-	int m = numNeuronsNextLayer;
+	int m = 1;
 	int k = numNeuronsCurrentLayer;
-	int n = 1;
+	int n = numNeuronsNextLayer;
 	double identityScalar = 1.0;
 
 	//initializing cublas handle and setting matrices
+	cublasStatus_t status;
 	cublasCreate_v2(&handle);
-	cublasSetMatrix(m,k, sizeof(double),weights,m,deviceWeights,m);
-	cublasSetMatrix(k,n, sizeof(double), inputs, k, deviceInputs,k);
-	cublasSetMatrix(m,n, sizeof(double), biases, m, deviceBiases, m);
+	status = cublasSetMatrix(m,k, sizeof(double),inputs,m,deviceInputs,m);
+	if (status != CUBLAS_STATUS_SUCCESS) {
+		printf("error with setting matrix 1\n");
+	}
+	status =cublasSetMatrix(k,n, sizeof(double), weights, k, deviceWeights,k);
+	if (status != CUBLAS_STATUS_SUCCESS) {
+		printf("error with setting matrix 2\n");
+	}
+	status =cublasSetMatrix(m,n, sizeof(double), biases, m, deviceBiases, m);
+	if (status != CUBLAS_STATUS_SUCCESS) {
+		printf("error with setting matrix 3\n");
+	}
 	//calling cublas matrix multiply and adding biases vector (this does deviceWeights*deviceInputs + biasVector) and stores the result in the bias vector
+
 	
-	cublasDgemm_v2(handle, CUBLAS_OP_N, CUBLAS_OP_N, m,n,k,&identityScalar,deviceWeights,m,deviceInputs,k,&identityScalar,deviceBiases,m);
+	status =cublasDgemm_v2(handle, CUBLAS_OP_N, CUBLAS_OP_N, m,n,k,&identityScalar,deviceInputs,m,deviceWeights,k,&identityScalar,deviceBiases,m);
 
-
+	if (status != CUBLAS_STATUS_SUCCESS) {
+		printf("error with cublas matrix multiplication\n");
+	}
 	
 
 	// copying result of multiplication and addition back to output host memory
-	cublasGetMatrix(m, n, sizeof(double), deviceBiases, m, output, m);
+	status=cublasGetMatrix(m, n, sizeof(double), deviceBiases, m, output, m);
+	if (status != CUBLAS_STATUS_SUCCESS) {
+		printf("error with cublas get matrix\n");
+	}
 	// cudaMemcpy(output, deviceBiases, sizeof(double) * numNeuronsNextLayer, cudaMemcpyDeviceToHost);
 
 	//destroying handle
@@ -68,9 +84,9 @@ void layerMultiplicationWrapper(double* weights, double* inputs, double* biases,
 	}
 
 	//freeing device memory
-	cudaFree(deviceWeights);
-	cudaFree(deviceInputs);
-	cudaFree(deviceBiases);
+	cudaErrorCheck(cudaFree(deviceWeights));
+	cudaErrorCheck(cudaFree(deviceInputs));
+	cudaErrorCheck(cudaFree(deviceBiases));
 }
 
 // will need to add biases to matrix results if any -> we have as many biases as results

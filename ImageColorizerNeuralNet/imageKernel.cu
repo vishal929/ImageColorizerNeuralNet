@@ -211,27 +211,6 @@ __global__ void getPatches(double* imagePixels, double** imagePatches, int rowDi
 // similar to getPatches, but gets a single patch based on a pixels row and column-> this will help for stochastic gradient descent
 __global__ void getPatch(double* imagePixels, double* imagePatch, int rowDim, int colDim, int patchSize, int features, int pixelRow, int pixelCol) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    /* FORGET ABOUT FEATURES FOR NOW
-    for (int i = tid; i < patchSize * patchSize * features; i += gridDim.x * blockDim.x) {
-        // filling the associated patch array in global memory
-        int row = (i / patchSize);
-        int col = (i % patchSize);
-        int shiftedRow = pixelRow - (patchSize/2) + row;
-        int shiftedCol = pixelCol - (patchSize/2) + col;
-        // getting the feature -> x^1 or x^2 etc.
-        int feature = ((i / (patchSize * patchSize)) + 1);
-        if (shiftedRow < 0 || shiftedRow >= rowDim || shiftedCol < 0 || shiftedCol >= colDim) {
-			// then this pixel is out of bounds, we should color it black in the patch
-			imagePatch[(patchSize * row) + col] = 0;
-		}
-		else {
-			// then this pixel is in the original image, we will copy its value to the patch 
-            // only using standard features for now
-			imagePatch[(patchSize * row) + col] = pow(imagePixels[(rowDim*shiftedRow) + shiftedCol], (double)feature);
-            //imagePatch[(patchSize * row) + col] = imagePixels[(rowDim * shiftedRow) + shiftedCol];
-		}
-    } */
-
     for (int i = tid;i < patchSize * patchSize * features; i += gridDim.x * blockDim.x) {
         int row = (i / patchSize);
         int col = (i % patchSize);

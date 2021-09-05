@@ -32,9 +32,10 @@ int main(int argc, char* argv[]) {
 	GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
 	*/
-	// training the neural net 
-	//100 training epochs with 0.0003 learning rate
-	trainNeuralNet(200, 0.0003);
+	// training the neural net repeatedly on the data set
+	while (true) {	
+		trainNeuralNet(1000, 0.0003);
+	}
 	// testing the neural net 
 	// testNeuralNet()
 	// testing the neural net on a specific image

@@ -110,8 +110,8 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
 			output[i] = 0.0;
 		}
-		//layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
-		CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		// CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
 		}
@@ -226,10 +226,10 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
 	free(newBWValues);
 
-	/*Going through every single pixel patch and getting the error*/
+	/*Going through every single pixel patch and getting the error only for the original input*/
 	for (int i = 0;i < 3840;i++) {
 		for (int j = 0;j < 2160;j++) {
-			cout << "Testing row: " << i << " and column: " << j << " \n";
+			cout << "on row: " << i << " and col: " << j << "\n";
 			// getting the patch for this pixel
 			double* imagePatch = (double*)malloc(sizeof(double) * patchSize * patchSize);
 			getPatchWrapper(scaledBWValues, imagePatch, 3840, 2160, patchSize, 1, i, j);
@@ -264,6 +264,8 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 	// I will probably not have more than 5 layers in the neural net for this problem
 	net* toReturn = (net*)malloc(sizeof(net));
 	toReturn->neuralLayers = (layer**)malloc(sizeof(layer*) * numLayers);
+	toReturn->numLayers = numLayers;
+	toReturn->numInputs = numInputsInData;
 	for (int i = 0; i < numLayers; i++) {
 		char* weightFileName = (char*)malloc(sizeof(char) * 13);
 		weightFileName[0] = '0' + i;
@@ -281,6 +283,7 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 			for (int j = 0; j < i; j++) {
 				free(toReturn->neuralLayers[j]->biases);
 				free(toReturn->neuralLayers[j]->weightMatrix);
+				free(toReturn->neuralLayers[j]->neuronInputs);
 				free(toReturn->neuralLayers[j]);
 			}
 			free(toReturn->neuralLayers);
@@ -297,6 +300,7 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 			toReturn->neuralLayers[i]->numNeuronsNextLayer = numNeuronsNextLayer;
 			toReturn->neuralLayers[i]->biases = (double*) malloc(sizeof(double) * numNeuronsNextLayer);
 			toReturn->neuralLayers[i]->weightMatrix = (double*)malloc(sizeof(double) * numNeurons * numNeuronsNextLayer);
+			toReturn->neuralLayers[i]->neuronInputs = (double*)malloc(sizeof(double) * numNeurons);
 			// getting matrix data
 			for (int j = 0; j < numNeuronsNextLayer; j++) {
 				for (int z = 0; z < numNeurons; z++) {
@@ -316,6 +320,7 @@ net* loadNeuralNet(int numLayers, int numInputsInData) {
 		free(weightFileName);
 		fclose(weightsFile);
 	}
+	cout << "LOADED EXISTING NEURAL NET SUCCESSFULLY!\n";
 	return toReturn;
 
 }
