@@ -31,17 +31,18 @@ int main(int argc, char* argv[]) {
 	GPUConvertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
 	GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
-	*/
+	*/	
 	// training the neural net repeatedly on the data set
+	/*
 	while (true) {	
 		trainNeuralNet(1000, 0.0003);
-	}
+	} */ 
 	// testing the neural net 
 	// testNeuralNet()
 	// testing the neural net on a specific image
 	// testSpecificNeuralNet()
 	// evaluating the neural net on a given image evaluateNeuralNet()
-	// outputFromNeuralNet(blackWhiteImagePath, colorImagePath)
+	outputFromNeuralNet("TrainingData/animal-6563620_1920.jpg", "hopeThisWorks.jpg");
 	return 0;
 }
 

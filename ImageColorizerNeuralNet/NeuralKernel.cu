@@ -31,6 +31,12 @@ __global__ void matrixTranspose(double* input, double* output, int inputRows, in
 
 // we will use cuBLAS NVIDIA api for fast matrix multiplication 
 void layerMultiplicationWrapper(double* weights, double* inputs, double* biases, double* output, int numNeuronsNextLayer, int numNeuronsCurrentLayer) {
+	/*
+	cudaDeviceProp myDevice;
+	cudaGetDeviceProperties(&myDevice, 0);
+	printf("concurrentKernels: %d\n", myDevice.concurrentKernels);
+	printf("compute minor: %d major: %d\n", myDevice.major, myDevice.minor);
+	*/
 	//wrapping multiplication with cublas	
 	double* deviceWeights, * deviceInputs, * deviceBiases;
 	cublasHandle_t handle;

@@ -3,8 +3,8 @@
 #include "device_launch_parameters.h"
 
 #include <stdio.h>
-#include "cuda/std/cmath";
-#include "cudaErrorHandler.cuh";
+#include "cuda/std/cmath"
+#include "cudaErrorHandler.cuh"
 
 
 // purpose of this kernel is to do a black and white transformation on a color image, represented by the colorImage array of color pixel values

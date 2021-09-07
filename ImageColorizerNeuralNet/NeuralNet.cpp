@@ -9,10 +9,14 @@
 #include <random>
 #include<fileapi.h>
 #include<tchar.h>
+#include<process.h>
 
 // including cuda kernels
 #include "NeuralKernel.cuh"
 #include "imageKernel.cuh"
+
+#define MAX_THREADS 50
+
 
 using namespace std;
 using namespace cimg_library;
@@ -110,15 +114,15 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
 			output[i] = 0.0;
 		}
-		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
-		// CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		//layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
 		}
 
 		// running sigmoid of the output 
-		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
-		// cpuSigmoid(output, toConsider->numNeuronsNextLayer);
+		//sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
+		cpuSigmoid(output, toConsider->numNeuronsNextLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT AFTER SIGMOID!\n";
 		}
@@ -227,8 +231,8 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 	free(newBWValues);
 
 	/*Going through every single pixel patch and getting the error only for the original input*/
-	for (int i = 0;i < 3840;i++) {
-		for (int j = 0;j < 2160;j++) {
+	for (int i = 0;i < colorPicture.height();i++) {
+		for (int j = 0;j < colorPicture.width();j++) {
 			cout << "on row: " << i << " and col: " << j << "\n";
 			// getting the patch for this pixel
 			double* imagePatch = (double*)malloc(sizeof(double) * patchSize * patchSize);
@@ -251,6 +255,43 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 	cout << "RED ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[0] << "\n";
 	cout << "GREEN ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[1] << "\n";
 	cout << "BLUE ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[2] << "\n";
+}
+
+// function to allocate memory for another net and copy data to it
+net* copyNet(net* toCopy) {
+	net* copied = (net*)malloc(sizeof(net));
+	copied->numInputs = toCopy->numInputs;
+	copied->numLayers = toCopy->numLayers;
+	copied->neuralLayers = (layer**)malloc(sizeof(layer*) * copied->numLayers);
+	for (int i = 0;i < copied->numLayers;i++) {
+		layer* toAllocate = (layer*)malloc(sizeof(layer));
+		toAllocate->numNeuronsCurrentLayer = toCopy->neuralLayers[i]->numNeuronsCurrentLayer;
+		toAllocate->numNeuronsNextLayer= toCopy->neuralLayers[i]->numNeuronsNextLayer;
+		toAllocate->neuronInputs = (double*)malloc(sizeof(double) * toAllocate->numNeuronsCurrentLayer);
+		toAllocate->weightMatrix = (double*)malloc(sizeof(double) * toAllocate->numNeuronsCurrentLayer * toAllocate->numNeuronsNextLayer);
+		toAllocate->biases = (double*)malloc(sizeof(double) * toAllocate->numNeuronsNextLayer);
+
+		//copying weights
+		memcpy(toAllocate->weightMatrix, toCopy->neuralLayers[i]->weightMatrix, sizeof(double) * toAllocate->numNeuronsCurrentLayer * toAllocate->numNeuronsNextLayer);
+		// copying biases
+		memcpy(toAllocate->biases, toCopy->neuralLayers[i]->biases, sizeof(double) * toAllocate->numNeuronsNextLayer);
+		copied->neuralLayers[i] = toAllocate;
+	}
+	//returning the deep copied net struct
+	return copied;
+}
+
+// function to free a net
+void freeNet(net* toFree) {
+	for (int i = 0;i < toFree->numLayers;i++) {
+		layer* inQuestion = toFree->neuralLayers[i];
+		free(inQuestion->biases);
+		free(inQuestion->neuronInputs);
+		free(inQuestion->weightMatrix);
+		free(inQuestion);
+	}
+	free(toFree->neuralLayers);
+	free(toFree);
 }
 
 // we may want to load a model from weights after training sessions so we do not "lose" progress
@@ -581,11 +622,133 @@ void testNeuralNet(net* netToTrain, double* RGBErrorBuffer) {
 	printf("ERROR FOR TESTING NET ON IMAGE %s: %lf\n", FindFileData.cFileName, 0.0);
 }
 
+typedef struct multiThreadEvaluationArgs {
+	double* scaledPixels;
+	double* finalOutput;
+	int row;
+	int col;
+	int rowDim;
+	int colDim;
+	net* toRun;
+} multiThreadEvaluationArgs;
 
+// function for a pthread to execute for multiple setting
+unsigned int WINAPI getPatchEvaluateNetSetColor(void* netArgs) {
+	int patchSize = 301;
+	multiThreadEvaluationArgs* args = (multiThreadEvaluationArgs*)netArgs;
+	// arguments
+	double* scaledPixels = args->scaledPixels;
+	double* finalOutput = args->finalOutput;
+	// creating a copy of the neural net to run
+	net* toRun = copyNet(args->toRun);
+	//row and column of pixel to get patch for
+	int row= args->row;
+	int col= args->col;
+	int rowDim = args->rowDim;
+	int colDim = args->colDim;
+	// this thread will grab the patch
+	double* patch = (double*) malloc(sizeof(double) * patchSize * patchSize);
+	getPatchWrapper(scaledPixels, patch, rowDim, colDim, patchSize, 1, row, col);
+	// evaluating the patch
+	double* rgb = evaluateNeuralNet(patch, toRun);
+
+	// setting the results to the finalOutput buffer
+	for (int i = 1;i <= 3;i++) {
+		finalOutput[(row * colDim * i) + col] = rgb[i] * 255;
+	}
+
+	cout << "FINISHED SETTING FOR ROW: " << row << " and COL: " << col << "\n";
+
+	// freeing memory
+	free(args);
+	freeNet(toRun);
+	free(patch);
+	free(rgb);
+
+	return 0;
+}
 
 //function for evaluating (given a black and white picture, output the color image after evaluation of patches in neural net)
 void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
-	// calling evaluate neural net for every patch and then using CIMG to save the output color image
+	int patchSize = 301;
+	// calling evaluate neural net for every patch and then using CIMG to save the output color image ** ASSUMES A NEURAL NET IS ALREADY TRAINED**
+	net* toUse = loadNeuralNet(2, patchSize * patchSize);
+	
+	//grabbing the blackWhiteImage pixel data
+	CImg<int> blackWhite(blackWhiteImageName);
+
+	// allocating memory to modify
+	double* scaledPixels = (double*)malloc(sizeof(double) * blackWhite.width() * blackWhite.height());
+
+	// allocating final buffer ( times 3 for RGB values)
+	double* finalOutput = (double*)malloc(sizeof(double) * 3 * blackWhite.width() * blackWhite.height());
+
+	// gpu scaling image to apply to net
+	pixelScaleWrapper(blackWhite.data(), scaledPixels, blackWhite.height(), blackWhite.width());
+
+	// going through pixels and applying net matrix multiplication/addition of biases to each rgb value	
+
+	// setting up thread args to copy from
+	multiThreadEvaluationArgs* baseStruct = (multiThreadEvaluationArgs*) malloc(sizeof(multiThreadEvaluationArgs));
+	baseStruct->finalOutput = finalOutput;
+	baseStruct->scaledPixels = scaledPixels;
+	baseStruct->colDim = blackWhite.width();
+	baseStruct->rowDim = blackWhite.height();
+	baseStruct->toRun = toUse;
+
+	//keeping track of threads -> not to exceed 16 concurrent kernel calls
+	HANDLE launchedThreads[MAX_THREADS];
+	int numThreads = 0;
+	for (int i = 0;i < blackWhite.height();i++) {
+		for (int j = 0;j < blackWhite.width();j++) {
+			// setting up the struct to pass to the thread
+			multiThreadEvaluationArgs* threadArgs = (multiThreadEvaluationArgs*)malloc(sizeof(multiThreadEvaluationArgs));
+			memcpy(threadArgs, baseStruct, sizeof(multiThreadEvaluationArgs));
+			threadArgs->col = j;
+			threadArgs->row = i;
+			// launching thread
+			//uintptr_t createdThread = _beginthread(getPatchEvaluateNetSetColor, 0, threadArgs);
+			HANDLE threadHandle = (HANDLE)_beginthreadex(0, 0, getPatchEvaluateNetSetColor, threadArgs, 0, 0);
+			// adding the handle to our list of handles
+			launchedThreads[numThreads] = threadHandle;
+			numThreads++;
+			if (numThreads == MAX_THREADS) {
+				//waiting on the current threads to finish execution before launching any more
+				for (int z = 0;z < MAX_THREADS;z++) {
+					if (launchedThreads[z] != NULL) {
+						WaitForSingleObject(launchedThreads[z], INFINITE);
+						CloseHandle(launchedThreads[z]);
+						launchedThreads[z] = NULL;
+						numThreads--;
+					}
+				}
+			}
+			/*
+			// getting the patch 
+			double* grabbedPatch = (double*)malloc(sizeof(double) * patchSize * patchSize);
+			getPatchWrapper(scaledPixels, grabbedPatch, blackWhite.height(), blackWhite.width(), patchSize, 1, i, j);
+
+			// getting rgb output
+			double* rgbOutput = evaluateNeuralNet(grabbedPatch, toUse);
+
+			// setting rgb output for result
+			for (int z = 1;z <= 3;z++) {
+				finalOutput[(i * blackWhite.width() * z) + j] = rgbOutput[z] * 255;
+			}
+
+			//freeing memory
+			free(grabbedPatch);
+			free(rgbOutput);
+			cout << "setup row: " << i << "and column: " << j << "\n";
+			*/
+		}
+	}
+	free(baseStruct);
+
+	// creating the final image
+	CImg<double> finalImage(finalOutput, blackWhite.width(), blackWhite.height(), 1, 3);
+	finalImage.save(colorOutputName);
+	
 }
 
 
