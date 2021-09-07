@@ -114,15 +114,15 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
 			output[i] = 0.0;
 		}
-		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
-		// CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		// layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
 		}
 
 		// running sigmoid of the output 
-		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
-		// cpuSigmoid(output, toConsider->numNeuronsNextLayer);
+		// sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
+		cpuSigmoid(output, toConsider->numNeuronsNextLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT AFTER SIGMOID!\n";
 		}
@@ -143,7 +143,60 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 	return output;
 }
 
+void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain, double learningRate) {
+	// partial derivatives for error
+	
+	double dEdR = -((((double)actualR) / 255) - outputRGB[0]);
+	double dEdG = -((((double)actualG) / 255) - outputRGB[1]);
+	double dEdB = -((((double)actualB) / 255) - outputRGB[2]);
+	double* currLayerOutput = (double*)malloc(sizeof(double) * 3);
+	memcpy(currLayerOutput, outputRGB, sizeof(double) * 3);
+	//double* nextDerivatives = (double*)malloc(sizeof(double) * 3);
+	vector<double> nextDerivatives;
+	nextDerivatives.push_back(dEdR * outputRGB[0] * (1-outputRGB[0]));
+	nextDerivatives.push_back(dEdG * outputRGB[1] * (1-outputRGB[1]));
+	nextDerivatives.push_back(dEdB * outputRGB[2] * (1-outputRGB[2]));
+	
+	for (int z = netToTrain->numLayers - 1; z >= 0;z--) {
+		layer* toConsider = netToTrain->neuralLayers[z];
+		toConsider->weightAdjustments = (double*)malloc(sizeof(double) * toConsider->numNeuronsCurrentLayer * toConsider->numNeuronsNextLayer);
+		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
+			for (int j = 0;j < toConsider->numNeuronsCurrentLayer;j++) {
+				// setting adjustment to be completed later	
+				toConsider->weightAdjustments[(i * toConsider->numNeuronsCurrentLayer) + j] = nextDerivatives[i] * toConsider->neuronInputs[j];
+			}
+
+			// we can update biases  immediately as they are not needed for any other error calculation
+			toConsider->biases[i] -= learningRate * nextDerivatives[i];
+		}
+		//updating the derivatives vector for the next iteration
+		vector<double> newDerivatives;
+		for (int j = 0;j < toConsider->numNeuronsCurrentLayer;j++) {
+			double derivativeSum = 0;
+			for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
+				derivativeSum += nextDerivatives[i] * toConsider->weightMatrix[(i*toConsider->numNeuronsCurrentLayer) + j];
+			}
+			newDerivatives.push_back(derivativeSum * toConsider->neuronInputs[j] * (1 - toConsider->neuronInputs[j]));
+		}
+		// setting the old derivative vector to the new one
+		nextDerivatives = newDerivatives;
+	}
+
+	// now doing the weight updates and freeing weight adjustment matrices
+	for (int z = 0;z < netToTrain->numLayers;z++) {
+		layer* toConsider = netToTrain->neuralLayers[z];
+		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
+			for (int j = 0;j < toConsider->numNeuronsCurrentLayer;j++) {
+				toConsider->weightMatrix[(i * toConsider->numNeuronsCurrentLayer) + j] -= learningRate * toConsider->weightAdjustments[(i * toConsider->numNeuronsCurrentLayer) + j];
+			}
+		}
+		free(toConsider->weightAdjustments);
+	}
+
+}
+
 // function for propogating backwards through the neural net and adjusting the weights/biases
+/*
 void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net* netToTrain, double learningRate) {
 	// if we need to implement relu beforehand, I will need to adjust this and the evaluate 
 	// squared error of output (1/2 is for ease of taking derivatives with respect to inputs later)
@@ -198,7 +251,7 @@ void backPropogate(double* outputRGB, int actualR, int actualG, int actualB, net
 	}
 	// maybe gpu implementation below if cpu too slow
 	// trainingHelperWrapper(netToTrain,  outputRGB, actualR, actualG, actualB, learningRate);
-}
+} */
 
 // goes through every patch in the image, gets the error and adjusts the buffer accordingly
 void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* pictureToTest) {
@@ -230,9 +283,9 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
 	free(newBWValues);
 
-	/*Going through random 1000 single pixel patch and getting the error only for the original input*/
+	/*Going through random 3000 single pixel patch and getting the error only for the original input*/
 	int testedCount = 0;
-	while (testedCount != 1000) {
+	while (testedCount != 3000) {
 		testedCount++;
 		random_device rando;
 		mt19937 gen(rando());
@@ -248,10 +301,10 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 		int actualG = newG[(rowOfPixel* 2160) + colOfPixel];
 		int actualB = newB[(rowOfPixel* 2160) + colOfPixel];
 		// adjusting error in buffers
-		RGBErrorBuffer[0] += pow(netOutputRGB[0] - (actualR / 255), 2);
-		RGBErrorBuffer[1] += pow(netOutputRGB[1] - (actualG / 255), 2);
-		RGBErrorBuffer[2] += pow(netOutputRGB[2] - (actualB / 255), 2);
-		cout << "on test number: " << testedCount << " out of 1000 with total error: " << (0.5) * (RGBErrorBuffer[0] + RGBErrorBuffer[1] + RGBErrorBuffer[2]) << "\n";
+		RGBErrorBuffer[0] += pow(netOutputRGB[0] - (((double)actualR) / 255.0), 2);
+		RGBErrorBuffer[1] += pow(netOutputRGB[1] - ((double) actualG / 255.0), 2);
+		RGBErrorBuffer[2] += pow(netOutputRGB[2] - ((double) actualB / 255.0), 2);
+		cout << "on test number: " << testedCount << " out of 3000 with total error: " << (0.5) * (RGBErrorBuffer[0] + RGBErrorBuffer[1] + RGBErrorBuffer[2]) << "\n";
 		//freeing memory for this patch
 		free(imagePatch);
 		free(netOutputRGB);
