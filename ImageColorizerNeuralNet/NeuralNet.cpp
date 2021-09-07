@@ -15,7 +15,7 @@
 #include "NeuralKernel.cuh"
 #include "imageKernel.cuh"
 
-#define MAX_THREADS 50
+#define MAX_THREADS 32
 
 
 using namespace std;
@@ -114,15 +114,15 @@ double* evaluateNeuralNet(double* patch, net* netToRun) {
 		for (int i = 0;i < toConsider->numNeuronsNextLayer;i++) {
 			output[i] = 0.0;
 		}
-		//layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
-		CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		layerMultiplicationWrapper(toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, output, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
+		// CPULayerMultiplicationAndAddition(output, toConsider->weightMatrix, toConsider->neuronInputs, toConsider->biases, toConsider->numNeuronsNextLayer, toConsider->numNeuronsCurrentLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT BEFORE SIGMOID!\n";
 		}
 
 		// running sigmoid of the output 
-		//sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
-		cpuSigmoid(output, toConsider->numNeuronsNextLayer);
+		sigmoidWrapper(output, toConsider->numNeuronsNextLayer);
+		// cpuSigmoid(output, toConsider->numNeuronsNextLayer);
 		if (isnan(output[0])) {
 			cout << "ISSUE WITH OUTPUT AFTER SIGMOID!\n";
 		}
@@ -230,7 +230,33 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
 	free(newBWValues);
 
-	/*Going through every single pixel patch and getting the error only for the original input*/
+	/*Going through random 1000 single pixel patch and getting the error only for the original input*/
+	int testedCount = 0;
+	while (testedCount != 1000) {
+		testedCount++;
+		random_device rando;
+		mt19937 gen(rando());
+		uniform_int_distribution<> row(0, colorPicture.height()-1);
+		uniform_int_distribution<> col(0, colorPicture.width()-1); 
+		int rowOfPixel= row(gen);
+		int colOfPixel= col(gen);
+		double* imagePatch = (double*)malloc(sizeof(double) * patchSize * patchSize);
+		getPatchWrapper(scaledBWValues, imagePatch, 3840, 2160, patchSize, 1, rowOfPixel, colOfPixel);
+		// getting the output of this patch
+		double* netOutputRGB = evaluateNeuralNet(imagePatch, netToTrain);
+		int actualR = newR[(rowOfPixel* 2160) + colOfPixel];
+		int actualG = newG[(rowOfPixel* 2160) + colOfPixel];
+		int actualB = newB[(rowOfPixel* 2160) + colOfPixel];
+		// adjusting error in buffers
+		RGBErrorBuffer[0] += pow(netOutputRGB[0] - (actualR / 255), 2);
+		RGBErrorBuffer[1] += pow(netOutputRGB[1] - (actualG / 255), 2);
+		RGBErrorBuffer[2] += pow(netOutputRGB[2] - (actualB / 255), 2);
+		cout << "on test number: " << testedCount << " out of 1000 with total error: " << (0.5) * (RGBErrorBuffer[0] + RGBErrorBuffer[1] + RGBErrorBuffer[2]) << "\n";
+		//freeing memory for this patch
+		free(imagePatch);
+		free(netOutputRGB);
+	}
+	/*
 	for (int i = 0;i < colorPicture.height();i++) {
 		for (int j = 0;j < colorPicture.width();j++) {
 			cout << "on row: " << i << " and col: " << j << "\n";
@@ -250,7 +276,7 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 			free(imagePatch);
 			free(netOutputRGB);
 		}
-	}
+	} */
 
 	cout << "RED ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[0] << "\n";
 	cout << "GREEN ERROR FOR IMAGE: " << pictureToTest << " ERROR: " << RGBErrorBuffer[1] << "\n";
@@ -407,9 +433,9 @@ net* initializeNeuralNet(int numLayers, int numInputsInData) {
 		innerLayers[i]->neuronInputs = (double*) malloc(sizeof(double) * neuronsCurrentLayer);
 		// initializing layer biases
 		innerLayers[i]->biases = (double*)malloc(sizeof(double) * neuronsNextLayer);
-		// initially filling biases with 0
+		// initially filling biases with small values
 		for (int j = 0;j < neuronsNextLayer;j++) {
-			innerLayers[i]->biases[j] = 0;
+			innerLayers[i]->biases[j] = double( rand()) / double((RAND_MAX * 4));
 		}
 	}
 	toReturn->neuralLayers = innerLayers;
