@@ -9,6 +9,8 @@
 // adding our neural net logic
 #include "NeuralNet.h"
 
+#include "GPUSecondNeuralNet.cuh"
+
 using namespace cimg_library;
 
 /*Function Prototypes*/
@@ -33,16 +35,18 @@ int main(int argc, char* argv[]) {
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
 	*/	
 	// training the neural net repeatedly on the data set
-	
+	/*
 	while (true) {	
-		trainNeuralNet(1000, 0.0003);
-	}
+		trainNeuralNet(1000, 0.3);
+	} */
 	// testing the neural net 
 	// testNeuralNet()
 	// testing the neural net on a specific image
 	// testSpecificNeuralNet()
 	// evaluating the neural net on a given image evaluateNeuralNet()
-	// outputFromNeuralNet("TrainingData/animal-6563620_1920.jpg", "hopeThisWorks.jpg");
+	//outputFromNeuralNet("TrainingData/animal-6563620_1920.jpg", "hopeThisWorks.jpg");
+	GPUNet* initialized = loadGPUNet();
+	writeGPUNet(initialized);
 	return 0;
 }
 

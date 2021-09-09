@@ -250,6 +250,44 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
     cudaFree(deviceImagePatch);
 }
 
+__global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
+    int tidx = blockDim.x * blockIdx.x + threadIdx.x;
+    int tidy = blockDim.y * blockIdx.y + threadIdx.y;
+    for (int i = tidx;i < pixelRow + squareSideLength;i += gridDim.x * blockDim.x) {
+        for (int j = tidy;j < pixelCol + squareSideLength;j += gridDim.y * blockDim.y) {
+            if (i >= rowDim || j >= colDim) {
+                // then this should just be black in the square
+                squarePixels[(i * squareSideLength) + j] = 0;
+            }
+            else {
+                // then this should just propogate the input pixel
+                squarePixels[(i * squareSideLength) + j] = inputPixels[(i * squareSideLength) + j];
+            }
+        }
+    }
+}
+
+//wrapper for getting the square kernel
+void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
+    int* devicePixels, * deviceSquarePixels;
+    cudaErrorCheck(cudaMalloc(&devicePixels, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceSquarePixels, sizeof(int) * squareSideLength * squareSideLength));
+
+    cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    
+    dim3 blockShape(18, 18);
+    dim3 gridShape(20, 20);
+    //calling kernel
+    getSquare<<<gridShape, blockShape>>>(devicePixels, deviceSquarePixels, squareSideLength, rowDim, colDim, pixelRow, pixelCol);
+
+    //copying to host
+    cudaErrorCheck(cudaMemcpy(squarePixels, deviceSquarePixels, sizeof(int) * squareSideLength * squareSideLength, cudaMemcpyDeviceToHost));
+
+    // freeing memory
+    cudaErrorCheck(cudaFree(devicePixels));
+    cudaErrorCheck(cudaFree(deviceSquarePixels));
+}
+
 // gpu kernel to scale the input pixels to be normalized
 __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, int colDim) {
     int maxDim = rowDim * colDim;

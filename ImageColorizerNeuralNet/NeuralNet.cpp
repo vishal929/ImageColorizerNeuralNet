@@ -519,7 +519,8 @@ void writeWeights(net* neuralNet) {
 		char layerNum = '0' + i;
 		basename[0] = layerNum;
 		memcpy(basename + 1, &"weights.txt\0", sizeof(char)*12);
-
+		// removing the current file before writing
+		remove(basename);
 		FILE* layer_weights = fopen(basename, "w");
 		// writing the number of neurons in this layer and then the next layer
 		fprintf(layer_weights, "%d %d\n", currLayer->numNeuronsCurrentLayer, currLayer->numNeuronsNextLayer);
@@ -527,16 +528,16 @@ void writeWeights(net* neuralNet) {
 		for (int j = 0; j < currLayer->numNeuronsNextLayer; j++) {
 			for (int z = 0; z < currLayer->numNeuronsCurrentLayer; z++) {
 				if (z != currLayer->numNeuronsCurrentLayer-1) {
-					fprintf(layer_weights,"%.3lf ", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
+					fprintf(layer_weights,"%.15lf ", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
 				}
 				else {
-					fprintf(layer_weights,"%.3lf\n", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
+					fprintf(layer_weights,"%.15lf\n", currLayer->weightMatrix[(j*currLayer->numNeuronsCurrentLayer) + z]);
 				}
 			}
 		}
 		// writing biases
 		for (int j = 0; j < currLayer->numNeuronsNextLayer; j++) {
-			fprintf(layer_weights, "%.3lf\n", currLayer->biases[j]);
+			fprintf(layer_weights, "%.15lf\n", currLayer->biases[j]);
 		}
 		// closing the file since writing is done
 		fclose(layer_weights);
@@ -776,10 +777,11 @@ void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
 	baseStruct->toRun = toUse;
 
 	//keeping track of threads -> not to exceed 16 concurrent kernel calls
+	cout << "total pixels: " << (blackWhite.width() / 5) * (blackWhite.height() / 5) << " \n";
 	HANDLE launchedThreads[MAX_THREADS];
 	int numThreads = 0;
-	for (int i = 0;i < blackWhite.height();i++) {
-		for (int j = 0;j < blackWhite.width();j++) {
+	for (int i = 0;i < blackWhite.height()/5;i++) {
+		for (int j = 0;j < blackWhite.width()/5;j++) {
 			// setting up the struct to pass to the thread
 			multiThreadEvaluationArgs* threadArgs = (multiThreadEvaluationArgs*)malloc(sizeof(multiThreadEvaluationArgs));
 			memcpy(threadArgs, baseStruct, sizeof(multiThreadEvaluationArgs));
