@@ -35,7 +35,7 @@ void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* b
     cudaErrorCheck(cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     cudaErrorCheck(cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel (for a 1080p image, we can launch 8100 blocks with 256 threads each)
-    makeImageBlackAndWhite<< <3000, 256 >> >(deviceR, deviceG, deviceB, deviceBWImage, rowDim, colDim);
+    makeImageBlackAndWhite<< <20, 512>> >(deviceR, deviceG, deviceB, deviceBWImage, rowDim, colDim);
     cudaError_t lastError = cudaGetLastError();
     if (lastError != cudaSuccess) {
         printf("error with make image black and white wrapper %s\n", cudaGetErrorString(lastError));
@@ -95,7 +95,7 @@ void makeColorImage4kWrapper(int* colorR, int* colorG, int* colorB, int* newR, i
     cudaErrorCheck(cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     cudaErrorCheck(cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel
-    makeColorImage4K << <3000, 256>> > (deviceR, deviceG, deviceB, deviceNewR, deviceNewG, deviceNewB, rowDim, colDim);
+    makeColorImage4K << <20, 512>> > (deviceR, deviceG, deviceB, deviceNewR, deviceNewG, deviceNewB, rowDim, colDim);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("error with making color image 4k wrapper: %s\n", cudaGetErrorString(err));
@@ -142,7 +142,7 @@ void makeBlackWhiteImage4KWrapper(int* bwValues, int* newBWValues, int rowDim, i
     // copying from host to device
     cudaErrorCheck(cudaMemcpy(deviceBWValues, bwValues, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel
-    makeBlackWhiteImage4K << <3000, 256>> > (deviceBWValues, deviceNewBWValues, rowDim, colDim);
+    makeBlackWhiteImage4K << <20, 512>> > (deviceBWValues, deviceNewBWValues, rowDim, colDim);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("error with make black and white image 4k wrapper: %s\n", cudaGetErrorString(err));
@@ -239,7 +239,7 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
     // copying memory
     cudaErrorCheck(cudaMemcpy(deviceImagePixels, imagePixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel
-    getPatch<<<200, 256>>>(deviceImagePixels, deviceImagePatch, rowDim, colDim, patchSize, features, pixelRow, pixelCol);
+    getPatch<<<20, 512>>>(deviceImagePixels, deviceImagePatch, rowDim, colDim, patchSize, features, pixelRow, pixelCol);
     cudaError_t lastError = cudaGetLastError();
     if (lastError != cudaSuccess) {
         printf("error with patch wrapper %s\n", cudaGetErrorString(lastError));
@@ -293,7 +293,7 @@ __global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, i
     int maxDim = rowDim * colDim;
     for (int i = blockDim.x * blockIdx.x + threadIdx.x; i < maxDim; i += gridDim.x * blockDim.x) {
         // max value is 255, so we just divide the input pixel value by 255
-        outputValues[i] = ((double)(inputPixels[i])) / 255;
+        outputValues[i] = ((double)(inputPixels[i])) / (255.0 * 62500.0);
     }
 }
 
@@ -305,7 +305,7 @@ void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int c
     //copying memory
     cudaErrorCheck(cudaMemcpy(deviceInputPixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling kernel
-    pixelScale << <200, 256 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim);
+    pixelScale << <20, 512 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim);
     cudaError_t lastError = cudaGetLastError();
     if (lastError != cudaSuccess) {
         printf("error with get patch wrapper %s\n", cudaGetErrorString(lastError));

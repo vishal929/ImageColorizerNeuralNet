@@ -53,6 +53,7 @@ CImg<int> getRandomTrainingImage() {
 		FindClose(hFind);
 		return CImg<int>();
 	}
+	FindClose(hFind);
 	// idea is to choose a random picture in the training data folder
 	// getting random number in a range
 	random_device rando;
@@ -61,29 +62,31 @@ CImg<int> getRandomTrainingImage() {
 	int imageToPick = distr(gen);
 
 	// choosing a random picture
+	WIN32_FIND_DATA RandomFileData;
+	HANDLE hFindRandom = NULL;
 
 	int currCount = 0;
 	string dirName = "TrainingData/";
 	while (currCount != imageToPick) {
-		if (hFind == NULL) {
-			hFind = FindFirstFile("./TrainingData/*\0", &FindFileData);
+		if (hFindRandom == NULL) {
+			hFindRandom = FindFirstFile("./TrainingData/*\0", &RandomFileData);
 		}
 		else {
-			FindNextFile(hFind, &FindFileData);
+			FindNextFile(hFindRandom, &RandomFileData);
 		}
-		if ((FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+		if ((RandomFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
 			currCount++;
 		}
 	}
 	// now the data is pointed to the picture to choose
 
 	// using cimg to get data for the given picture
-	for (int i = 0;i < strlen(FindFileData.cFileName);i++) {
-		dirName.push_back(FindFileData.cFileName[i]);
+	for (int i = 0;i < strlen(RandomFileData.cFileName);i++) {
+		dirName.push_back(RandomFileData.cFileName[i]);
 	}
 	CImg<int> colorPicture(dirName.c_str());
 	cout << "grabbed training image: " << dirName << "\n";
-	FindClose(hFind);
+	FindClose(hFindRandom);
 	return colorPicture;
 }
 
@@ -124,11 +127,11 @@ void sigmoidMatrixTest(double* input, double* output, int dim) {
 
 void cpuSigmoidMatrix(double* output, int dim) {
 	for (int i = 0;i < dim;i++) {
-		output[i] = 1 / (1 + exp(-output[i]));
+		output[i] = 1 / (1 + exp(-(output[i])));
 	}
 }
 
-// given weight matrices and biases , we can initialize weights with random small numbers and biases with 0
+// given weight matrices and biases , we can initialize weights with random small numbers and biases with very small static values
 __global__ void initializeGPUNet(double* weights, double* randomNumbers, double* biases, int numInputs, int numOutputs) {
 	int tidx = blockDim.x * blockIdx.x + threadIdx.x;
 	int tidy = blockDim.y * blockIdx.y + threadIdx.y;
@@ -136,7 +139,7 @@ __global__ void initializeGPUNet(double* weights, double* randomNumbers, double*
 		for (int z = tidy; z < numOutputs;z += gridDim.y * blockDim.y) {
 			weights[(z * numInputs) + j] = randomNumbers[(z * numInputs) + j];
 			if (tidx == 0) {
-				biases[z] = 0;
+				biases[z] = randomNumbers[(z * numInputs) + j];
 			}
 		}
 	}
@@ -216,7 +219,7 @@ GPUNet* loadGPUNet() {
 			cudaErrorCheck(cudaMalloc(&randomBuffer, sizeof(double) * specificInputSize * specificOutputSize));
 			// seeding generator
 			curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-			curandSetPseudoRandomGeneratorSeed(gen, 1234ULL);
+			curandSetPseudoRandomGeneratorSeed(gen, time(NULL));
 			// getting random numbers
 			curandGenerateUniformDouble(gen, randomBuffer, specificInputSize * specificOutputSize);
 			// we will call the initialize kernel
@@ -317,6 +320,7 @@ __global__ void backPropogateGPUInputHelper(double* weightAdjustment, double* ou
 	for (int i = tidx;i < numOutputs; i += blockDim.x * gridDim.x) {
 		for (int j = tidy;j < numInputs;j += blockDim.y * gridDim.y) {
 			weightAdjustment[(i * numInputs) + j] = outputs[i] * (1-outputs[i]);
+			
 		}
 	}
 }
@@ -385,12 +389,11 @@ void evaluateGPUNet(GPUNet* toEvaluate, double* inputs, double* outputBuffer) {
 		//double* sigmoidedCheck = (double*)malloc(sizeof(double) * toEvaluate->numInputs[i] * toEvaluate->numOutputs[i]);
 		//cudaErrorCheck(cudaMemcpy(sigmoidedCheck,layerOutput,sizeof(double)*toEvaluate->numOutputs[i]))
 		
-
 		/*
-		double* toSigmoid = (double*)malloc(sizeof(double) * toEvaluate->numInputs[i] * toEvaluate->numOutputs[i]);
-		cudaMemcpy(toSigmoid, layerOutput, sizeof(double) * toEvaluate->numInputs[i] * toEvaluate->numOutputs[i], cudaMemcpyDeviceToHost);
-		cpuSigmoidMatrix(toSigmoid, toEvaluate->numInputs[i] * toEvaluate->numOutputs[i]);
-		cudaMemcpy(layerOutput, toSigmoid, sizeof(double) * toEvaluate->numInputs[i] * toEvaluate->numOutputs[i], cudaMemcpyHostToDevice);
+		double* toSigmoid = (double*)malloc(sizeof(double) * toEvaluate->numOutputs[i] );
+		cudaMemcpy(toSigmoid, layerOutput, sizeof(double) * toEvaluate->numOutputs[i], cudaMemcpyDeviceToHost);
+		cpuSigmoidMatrix(toSigmoid, toEvaluate->numOutputs[i]);
+		cudaMemcpy(layerOutput, toSigmoid, sizeof(double) * toEvaluate->numOutputs[i], cudaMemcpyHostToDevice);
 		free(toSigmoid);
 		*/
 
@@ -424,10 +427,14 @@ __global__ void weightAdjust(double* weightAdjustments,double* biases, double* w
 			weightAdjustments[(i * numInputs) + j] *= derivatives[i];
 			atomicAdd(&(nextDerivatives[j]),weightAdjustments[(i * numInputs) + j] * weights[(i*numInputs)+j] );
 		}
+		
+	}
+	__syncthreads();
+	for (int i = tidx; i < numOutputs;i += gridDim.x * blockDim.x) {
 		if (tidy == 0) {
 			biases[i] -= learningRate * weightAdjustments[(i * numInputs)];
 		}
-	}
+	}	
 }
 
 //actually adjusts the weights and biases
@@ -437,6 +444,10 @@ __global__ void finalizeWeightAdjust(double* weights, double* weightAdjustments,
 	for (int i = tidx;i < numOutputs;i += gridDim.x * blockDim.x) {
 		for (int j = tidy;j < numInputs; j+= gridDim.y*blockDim.y) {
 			weights[(i*numInputs) + j] -= learningRate * weightAdjustments[(i*numInputs)+j] * inputs[j];
+			/*
+			if (inputs[j] == 0) {
+				printf("NOOOOOOOOOOOOOOO\n");
+			} */
 		}
 	}
 }
@@ -479,6 +490,7 @@ void backPropogateGPUNet(GPUNet* toBackProp, double* outputBuffer, double* actua
 		finalizeWeightAdjust<<<dimGrid,dimBlock>>>(toBackProp->weights[z], toBackProp->weightAdjustments[z], toBackProp->layerInput[z],toBackProp->numInputs[z] ,toBackProp->numOutputs[z], learningRate);
 	}
 
+
 	// freeing host memory
 	free(derivatives);
 	
@@ -514,8 +526,11 @@ void trainFromDataSet(double learningRate) {
 		// we will crop into perfect squares and then combine them to get the final image (we do not need to combine them for training though)
 		int trainCount = 0;
 		//R,G,B training errors
-		double currTrainingError[3]{};
 		while (trainCount != epochNum) {
+			vector<double> currTrainingError;
+			currTrainingError.push_back(0);
+			currTrainingError.push_back(0);
+			currTrainingError.push_back(0);
 			for (int i = 0;i < randomImage.height();i += squareSide) {
 				for (int j = 0;j < randomImage.width();j += squareSide) {
 					// getting the square for both the bw image and color image
@@ -557,18 +572,15 @@ void trainFromDataSet(double learningRate) {
 					cudaMemGetInfo(&freeMem, &totalMem);
 					cout << "total free memory of gpu after evaluating net: " << freeMem << "\n";
 					*/
-
-					// printing out the current training error
+					//incrementing training error
 					for (int i = 0;i < outputSize;i += 3) {
-						currTrainingError[0] += pow(scaledRedSquare[i] - outputBuffer[i], 2);
-						currTrainingError[1] += pow(scaledGreenSquare[i] - outputBuffer[i + 1], 2);
-						currTrainingError[2] += pow(scaledBlueSquare[i] - outputBuffer[i + 2], 2);
+						currTrainingError[0] += pow(scaledRedSquare[i] - outputBuffer[i], 2.0);
+						currTrainingError[1] += pow(scaledGreenSquare[i] - outputBuffer[i + 1], 2.0);
+						currTrainingError[2] += pow(scaledBlueSquare[i] - outputBuffer[i + 2], 2.0);
 					}
-					/*
-					cout << "red error: " << currTrainingError[0] << "\n";
-					cout << "green error: " << currTrainingError[1] << "\n";
-					cout << "blue error: " << currTrainingError[2] << "\n";
-					*/
+						
+					
+					
 
 					//incrementTrainingErrorGPU()
 					/*
@@ -591,8 +603,13 @@ void trainFromDataSet(double learningRate) {
 					free(outputBuffer);
 				}
 			}
+
 			trainCount++;
 			cout << "FINISHED EPOCH: " << trainCount << "\n";
+			// printing out the current training error
+			printf("red error: %lf\n", currTrainingError[0]);
+			printf("green error: %lf\n", currTrainingError[1]);
+			printf("blue error: %lf\n", currTrainingError[2]);
 		}
 
 		//freeing allocated memory
