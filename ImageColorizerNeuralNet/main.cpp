@@ -34,19 +34,27 @@ int main(int argc, char* argv[]) {
 	GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
 	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
 	*/	
-	// training the neural net repeatedly on the data set
-	/*
-	while (true) {	
-		trainNeuralNet(1000, 0.3);
-	} */
-	// testing the neural net 
-	// testNeuralNet()
-	// testing the neural net on a specific image
-	// testSpecificNeuralNet()
-	// evaluating the neural net on a given image evaluateNeuralNet()
+	
 	//outputFromNeuralNet("TrainingData/animal-6563620_1920.jpg", "hopeThisWorks.jpg");
+	/* 
+	//TESTING GPU INITIALIZATION AND WRITING
 	GPUNet* initialized = loadGPUNet();
 	writeGPUNet(initialized);
+	*/
+	/*
+	//TESTING SIGMOID GPU KERNEL
+	double* input = (double*)malloc(sizeof(double) * 1000);
+	double* output = (double*)malloc(sizeof(double) * 1000);
+	//randomizing input
+	for (int i = 0;i < 1000;i++) {
+		srand(time(NULL));
+		input[i] = (double) (rand() / (RAND_MAX * 4.0));
+	}
+	sigmoidMatrixTest(input, output, 1000);
+	*/
+
+	
+	trainFromDataSet(0.3);
 	return 0;
 }
 

@@ -253,15 +253,15 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
 __global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
     int tidx = blockDim.x * blockIdx.x + threadIdx.x;
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
-    for (int i = tidx;i < pixelRow + squareSideLength;i += gridDim.x * blockDim.x) {
-        for (int j = tidy;j < pixelCol + squareSideLength;j += gridDim.y * blockDim.y) {
+    for (int i = pixelRow + tidx;i < pixelRow + squareSideLength;i += gridDim.x * blockDim.x) {
+        for (int j = pixelCol + tidy;j < pixelCol + squareSideLength;j += gridDim.y * blockDim.y) {
             if (i >= rowDim || j >= colDim) {
                 // then this should just be black in the square
-                squarePixels[(i * squareSideLength) + j] = 0;
+                squarePixels[((i-pixelRow) * squareSideLength) + (j-pixelCol)] = 0;
             }
             else {
                 // then this should just propogate the input pixel
-                squarePixels[(i * squareSideLength) + j] = inputPixels[(i * squareSideLength) + j];
+                squarePixels[((i-pixelRow) * squareSideLength) + (j-pixelCol)] = inputPixels[(i * squareSideLength) + j];
             }
         }
     }
@@ -275,8 +275,8 @@ void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength,
 
     cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     
-    dim3 blockShape(18, 18);
-    dim3 gridShape(20, 20);
+    dim3 blockShape(16, 16);
+    dim3 gridShape(32, 32);
     //calling kernel
     getSquare<<<gridShape, blockShape>>>(devicePixels, deviceSquarePixels, squareSideLength, rowDim, colDim, pixelRow, pixelCol);
 
