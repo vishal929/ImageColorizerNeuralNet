@@ -137,9 +137,9 @@ __global__ void initializeGPUNet(double* weights, double* randomNumbers, double*
 	int tidy = blockDim.y * blockIdx.y + threadIdx.y;
 	for (int j = tidx; j < numInputs;j += gridDim.x * blockDim.x) {
 		for (int z = tidy; z < numOutputs;z += gridDim.y * blockDim.y) {
-			weights[(z * numInputs) + j] = randomNumbers[(z * numInputs) + j];
+			weights[(z * numInputs) + j] = randomNumbers[(z * numInputs) + j]/100;
 			if (tidx == 0) {
-				biases[z] = randomNumbers[(z * numInputs) + j];
+				biases[z] = randomNumbers[(z * numInputs) + j]/100;
 			}
 		}
 	}
@@ -177,8 +177,8 @@ GPUNet* loadGPUNet() {
 	
 	string weightName = string("weights.txt");
 	// dimension for 2D kernel launches
-	dim3 blockShape(16, 16);
-	dim3 gridShape(32, 32);
+	dim3 blockShape(32, 32);
+	dim3 gridShape(16, 16);
 	for (int i = 0;i < numLayers;i++) {
 		//adjusting the weight name
 		weightName.insert(weightName.begin(), '0' + i);
@@ -341,8 +341,8 @@ void evaluateGPUNet(GPUNet* toEvaluate, double* inputs, double* outputBuffer) {
 	double* layerOutput;
 
 	// sizes for 2d kernels
-	dim3 blockShape(16, 16);
-	dim3 gridShape(32, 32);
+	dim3 blockShape(32, 32);
+	dim3 gridShape(16, 16);
 	
 	//initializing cublas handle and setting matrices
 	cublasHandle_t handle;
@@ -465,10 +465,10 @@ void backPropogateGPUNet(GPUNet* toBackProp, double* outputBuffer, double* actua
 		derivatives[i+2]=(-(actualBlue[i] - outputBuffer[i+2]));
 	}
 
-	dim3 dimBlock(16, 16);
+	dim3 dimBlock(32, 32);
 	dim3 dimGrid;
-	dimGrid.x = 32;
-	dimGrid.y = 32;
+	dimGrid.x = 16;
+	dimGrid.y = 16;
 
 	//copying derivatives to deviceDerivatives pointer
 	double* deviceDerivatives;
@@ -497,8 +497,57 @@ void backPropogateGPUNet(GPUNet* toBackProp, double* outputBuffer, double* actua
 }
 
 // given an image, we will run the net on it and output the result image
-void outputFromGPUNet(char* imageName) {
+void outputFromGPUNet(char* imageName, char* outputImageName) {
+	GPUNet* toEvaluate = loadGPUNet();
 	//will divide the image into squares and output it
+	
+	// grabbing the black and white image
+	CImg<int> chosenImage(imageName);
+
+	double* finalBuffer = (double*)malloc(sizeof(double) * 3 * chosenImage.height() * chosenImage.width());
+
+	// going through patches, running the net on each patch, and then adding to the final buffer
+	for (int i = 0;i < chosenImage.height();i+=squareSide) {
+		for (int j = 0; j < chosenImage.width();j+=squareSide) {
+			int* bwSquare = (int*)malloc(sizeof(int) * squareSide * squareSide);
+			getSquareWrapper(chosenImage.data(), bwSquare, squareSide, chosenImage.height(), chosenImage.width(), i, j);
+
+			// scale pixels by 255 for both bw image and color image
+			double* scaledBWSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
+			pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, (255 * inputSize));
+			free(bwSquare);
+
+			// evaluate net for each part of the image
+			// output[0] is first pixels R, output[1],output[2] represent first pixels G and B value
+			double* outputBuffer = (double*)malloc(sizeof(double) * outputSize);
+			evaluateGPUNet(toEvaluate, scaledBWSquare, outputBuffer);
+			// copying output to final buffer and freeing intermediate square memory
+			for (int z = 0;z < outputSize;z+=3) {
+				double red = outputBuffer[z] * 255;
+				double green = outputBuffer[z + 1] * 255;
+				double blue = outputBuffer[z + 2] * 255;
+				int finalBufferRowIncrement = z/squareSide;
+				int finalBufferColIncrement = z%squareSide;
+				int convertedRow = i + finalBufferRowIncrement;
+				int convertedCol = j + finalBufferColIncrement;
+				// only copying the value to the final image if the dimensions match up
+				if (convertedRow < chosenImage.height() && convertedCol < chosenImage.width()) {
+					// all Rs together, then all Gs and then all Bs
+					finalBuffer[(convertedRow * chosenImage.width()) + convertedCol] = red;
+					finalBuffer[(chosenImage.width() * chosenImage.height()) + (convertedRow * chosenImage.width()) + convertedCol] = green;
+					finalBuffer[(2* chosenImage.width() * chosenImage.height()) + (convertedRow * chosenImage.width()) + convertedCol] = blue;
+					cout << "filled pixel row: " << convertedRow << " and column: " << convertedCol << " \n";
+				}
+			}
+			free(scaledBWSquare);
+			//freeing this batches output, as we are done with it
+			free(outputBuffer);
+		}
+	}
+	// creating the color image and saving it to disk
+	CImg<double> newColorImage(finalBuffer,  chosenImage.width(), chosenImage.height(), 1, 3);
+	newColorImage.save(outputImageName);
+
 }
 
 
@@ -545,16 +594,16 @@ void trainFromDataSet(double learningRate) {
 
 					// scale pixels by 255 for both bw image and color image
 					double* scaledBWSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-					pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide);
+					pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, (255 * inputSize ));
 					free(bwSquare);
 					double* scaledRedSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-					pixelScaleWrapper(redSquare, scaledRedSquare, squareSide, squareSide);
+					pixelScaleWrapper(redSquare, scaledRedSquare, squareSide, squareSide,255);
 					free(redSquare);
 					double* scaledGreenSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-					pixelScaleWrapper(greenSquare, scaledGreenSquare, squareSide, squareSide);
+					pixelScaleWrapper(greenSquare, scaledGreenSquare, squareSide, squareSide,255);
 					free(greenSquare);
 					double* scaledBlueSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-					pixelScaleWrapper(blueSquare, scaledBlueSquare, squareSide, squareSide);
+					pixelScaleWrapper(blueSquare, scaledBlueSquare, squareSide, squareSide,255);
 					free(blueSquare);
 
 					// evaluate net for each part of the image
@@ -573,7 +622,7 @@ void trainFromDataSet(double learningRate) {
 					cout << "total free memory of gpu after evaluating net: " << freeMem << "\n";
 					*/
 					//incrementing training error
-					for (int i = 0;i < outputSize;i += 3) {
+					for (int z = 0;z < outputSize;z += 3) {
 						currTrainingError[0] += pow(scaledRedSquare[i] - outputBuffer[i], 2.0);
 						currTrainingError[1] += pow(scaledGreenSquare[i] - outputBuffer[i + 1], 2.0);
 						currTrainingError[2] += pow(scaledBlueSquare[i] - outputBuffer[i + 2], 2.0);
