@@ -280,7 +280,7 @@ void testSpecificNeuralNet(net* netToTrain, double* RGBErrorBuffer, const char* 
 
 	/*Scaling greyscale values to be between 0 and 1*/
 	double* scaledBWValues = (double*)malloc(sizeof(double) * 3840 * 2160);
-	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
+	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160,0);
 	free(newBWValues);
 
 	/*Going through random 3000 single pixel patch and getting the error only for the original input*/
@@ -621,7 +621,7 @@ void trainNeuralNet(int numTrainingSessions, double learningRate) {
 
 	/*Scaling greyscale values to be between 0 and 1*/
 	double* scaledBWValues = (double*)malloc(sizeof(double) * 3840 * 2160);
-	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160);
+	pixelScaleWrapper(newBWValues, scaledBWValues, 3840, 2160,0);
 	free(newBWValues);
 	// now scaled BWValues holds the scaled image pixels
 		
@@ -764,7 +764,7 @@ void outputFromNeuralNet(char* blackWhiteImageName, char* colorOutputName) {
 	double* finalOutput = (double*)malloc(sizeof(double) * 3 * blackWhite.width() * blackWhite.height());
 
 	// gpu scaling image to apply to net
-	pixelScaleWrapper(blackWhite.data(), scaledPixels, blackWhite.height(), blackWhite.width());
+	pixelScaleWrapper(blackWhite.data(), scaledPixels, blackWhite.height(), blackWhite.width(),0);
 
 	// going through pixels and applying net matrix multiplication/addition of biases to each rgb value	
 

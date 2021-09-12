@@ -253,15 +253,15 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
 __global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
     int tidx = blockDim.x * blockIdx.x + threadIdx.x;
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
-    for (int i = pixelRow + tidx;i < pixelRow + squareSideLength;i += gridDim.x * blockDim.x) {
-        for (int j = pixelCol + tidy;j < pixelCol + squareSideLength;j += gridDim.y * blockDim.y) {
-            if (i >= rowDim || j >= colDim) {
+    for (int i = tidx;i < squareSideLength;i += gridDim.x * blockDim.x) {
+        for (int j =  tidy;j <  squareSideLength;j += gridDim.y * blockDim.y) {
+            if (i+pixelRow >= rowDim || j+pixelCol>= colDim) {
                 // then this should just be black in the square
-                squarePixels[((i-pixelRow) * squareSideLength) + (j-pixelCol)] = 0;
+                squarePixels[(i* squareSideLength) + j] = 0;
             }
             else {
                 // then this should just propogate the input pixel
-                squarePixels[((i-pixelRow) * squareSideLength) + (j-pixelCol)] = inputPixels[(i * squareSideLength) + j];
+                squarePixels[(i* squareSideLength) + j] = inputPixels[((i+pixelRow) * colDim) + (j+pixelCol)];
             }
         }
     }
@@ -275,8 +275,8 @@ void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength,
 
     cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     
-    dim3 blockShape(16, 16);
-    dim3 gridShape(32, 32);
+    dim3 blockShape(32, 32);
+    dim3 gridShape(16, 16);
     //calling kernel
     getSquare<<<gridShape, blockShape>>>(devicePixels, deviceSquarePixels, squareSideLength, rowDim, colDim, pixelRow, pixelCol);
 
@@ -289,15 +289,16 @@ void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength,
 }
 
 // gpu kernel to scale the input pixels to be normalized
-__global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, int colDim) {
+__global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, int colDim,double scalar) {
     int maxDim = rowDim * colDim;
     for (int i = blockDim.x * blockIdx.x + threadIdx.x; i < maxDim; i += gridDim.x * blockDim.x) {
         // max value is 255, so we just divide the input pixel value by 255
-        outputValues[i] = ((double)(inputPixels[i])) / (255.0 * 62500.0);
+        //outputValues[i] = ((double)(inputPixels[i])) / (255.0 * 62500.0);
+        outputValues[i] = ((double)(inputPixels[i])) / (scalar);
     }
 }
 
-void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int colDim) {
+void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int colDim, double scalar) {
     int* deviceInputPixels;
     double* deviceOutputValues;
     cudaErrorCheck(cudaMalloc(&deviceInputPixels, sizeof(int) * rowDim * colDim));
@@ -305,7 +306,7 @@ void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int c
     //copying memory
     cudaErrorCheck(cudaMemcpy(deviceInputPixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling kernel
-    pixelScale << <20, 512 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim);
+    pixelScale << <20, 512 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim, scalar);
     cudaError_t lastError = cudaGetLastError();
     if (lastError != cudaSuccess) {
         printf("error with get patch wrapper %s\n", cudaGetErrorString(lastError));

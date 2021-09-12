@@ -28,12 +28,11 @@ void CPUShowImageFromPatch(char* blackWhiteImage, char* outputPatchName);
 
 int main(int argc, char* argv[]) {
 	// testing if we can load the testData jpg and then print out stuff about it using the CImg library and imagemagick
-	/*
-	GPUBlackAndWhiteCreation("testData.jpg", "blackAndWhite.jpg");
-	GPUConvertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
-	GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
-	GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
-	*/	
+	
+	//GPUBlackAndWhiteCreation("TrainingData/boat-6561172_1920.jpg", "boatBW.jpg");
+	//GPUConvertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
+	//GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
+	//GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
 	
 	//outputFromNeuralNet("TrainingData/animal-6563620_1920.jpg", "hopeThisWorks.jpg");
 	/* 
@@ -55,6 +54,18 @@ int main(int argc, char* argv[]) {
 
 	
 	trainFromDataSet(0.3);
+	//outputFromGPUNet("boatBW.jpg", "output.jpg");
+	
+	/*
+	CImg<int> test("blackAndWhite.jpg");
+	int* square = (int*)malloc(sizeof(int) * squareSide* squareSide);
+	getSquareWrapper(test.data(), square, squareSide, test.height(), test.width(), 500, 500);
+	CImg<int> converted(square, squareSide, squareSide);
+	converted.save("output.jpg");
+	*/
+	
+	
+	
 	return 0;
 }
 

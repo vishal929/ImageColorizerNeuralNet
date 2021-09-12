@@ -1,15 +1,16 @@
 #ifndef GPUSecondNeuralNet_h 
 #define GPUSecondNeuralNet_h
 
-// input size is the size of the input layer (currently 250x250)
-#define inputSize 62500
-#define squareSide 250
+// input size is the size of the input layer (currently 200x200)
+#define inputSize 40000
+#define squareSide 200
 // hidden layer numNeurons is the number of neurons in intermediate layers
 #define hiddenLayerNumNeurons 200
 // output size is the number of neurons in the output layer (currently 100x100 with 3 RGB values for each)
 #define outputSize 30000
+#define outputSquareSide 100
 // epochNumber is the number of training sessions to perform on a particular image
-#define epochNum 100
+#define epochNum 1000
 // defining a standard number of layers to use (3 layers for now with 1 input layer and 2 hidden layer)
 #define standardNetSize 3
 
@@ -38,5 +39,6 @@ void writeGPUNet(GPUNet* net);
 GPUNet* loadGPUNet();
 void trainFromDataSet(double learningRate);
 void sigmoidMatrixTest(double* input, double* output, int dim);
+void outputFromGPUNet(char* imageName, char* outputImageName);
 
 #endif 
