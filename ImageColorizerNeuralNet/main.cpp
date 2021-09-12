@@ -29,7 +29,7 @@ void CPUShowImageFromPatch(char* blackWhiteImage, char* outputPatchName);
 int main(int argc, char* argv[]) {
 	// testing if we can load the testData jpg and then print out stuff about it using the CImg library and imagemagick
 	
-	//GPUBlackAndWhiteCreation("TrainingData/boat-6561172_1920.jpg", "boatBW.jpg");
+	//GPUBlackAndWhiteCreation("TrainingData/lordOfRings.jpg", "lotrBW.png");
 	//GPUConvertColorImageTo4K("testData.jpg", "colorConverted4k.jpg");
 	//GPUConvertBWImageTo4k("blackAndWhite.jpg", "blackWhiteConverted4k.jpg");
 	//GPUShowImageFromPatch("blackWhiteConverted4k.jpg", "testPatchOutput.jpg");
@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 
 	
 	trainFromDataSet(0.3);
-	//outputFromGPUNet("boatBW.jpg", "output.jpg");
+	//outputFromGPUNet("lotrBW.png", "output.png");
 	
 	/*
 	CImg<int> test("blackAndWhite.jpg");
