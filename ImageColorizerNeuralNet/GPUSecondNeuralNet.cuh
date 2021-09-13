@@ -1,21 +1,21 @@
 #ifndef GPUSecondNeuralNet_h 
 #define GPUSecondNeuralNet_h
 
-// input size is the size of the input layer (currently 300x300)
-#define inputSize 90000
-#define squareSide 300
+// input size is the size of the input layer (currently 100x100)
+#define inputSize 10000
+#define squareSide 100
 // hidden layer numNeurons is the number of neurons in intermediate layers
-#define hiddenLayerNumNeurons 200
-// output size is the number of neurons in the output layer (currently 1x1 with 3 RGB values for each)
-#define outputSize 3
-#define outputSquareSide 1
+#define hiddenLayerNumNeurons 8750
+// output size is the number of neurons in the output layer (currently 50x50 with 3 RGB values for each)
+#define outputSize 7500
+#define outputSquareSide 50
 // epochNumber is the number of training sessions to perform on a particular image
-#define epochNum 1
-// defining a standard number of layers to use (3 layers for now with 1 input layer and 2 hidden layer)
+#define epochNum 20
+// defining a standard number of layers to use (3 layers for now with 1 input layer and 1 hidden layer and 1 output layer)
 #define standardNetSize 2
 
 //defining a batch size for gpu evaluation speedup
-#define numInputSquares 10000
+#define numInputSquares 1
 
 // defining the data organization of our net on the gpu
 typedef struct GPUNet {
@@ -23,6 +23,8 @@ typedef struct GPUNet {
 	double** weights;
 	// weight adjustments for gradient descent backpropogation
 	double** weightAdjustments;
+	// delta values for backpropogation
+	double** deltas;
 	// biases for our model
 	double** biases;
 	// adjustment for biases

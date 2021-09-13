@@ -270,13 +270,26 @@ __global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLen
 //wrapper for getting the square kernel
 void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
     int* devicePixels, * deviceSquarePixels;
+    /*
+    size_t freeMem;
+    size_t totalMem;
+    cudaMemGetInfo(&freeMem, &totalMem);
+    printf("total memory of gpu: %ul\n",totalMem);
+    printf( "total free memory of gpu before square allocation: %ul\n",freeMem);
+    */
     cudaErrorCheck(cudaMalloc(&devicePixels, sizeof(int) * rowDim * colDim));
     cudaErrorCheck(cudaMalloc(&deviceSquarePixels, sizeof(int) * squareSideLength * squareSideLength));
 
+    /*
+    cudaMemGetInfo(&freeMem, &totalMem);
+    printf("total memory of gpu: %ul\n",totalMem);
+    printf( "total free memory of gpu after square allocation: %ul\n",freeMem);
+    */
+
     cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
     
-    dim3 blockShape(32, 32);
-    dim3 gridShape(16, 16);
+    dim3 blockShape(16, 16);
+    dim3 gridShape(4, 4);
     //calling kernel
     getSquare<<<gridShape, blockShape>>>(devicePixels, deviceSquarePixels, squareSideLength, rowDim, colDim, pixelRow, pixelCol);
 

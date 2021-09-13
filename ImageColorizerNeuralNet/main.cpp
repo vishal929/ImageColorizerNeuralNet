@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
 	*/
 
 	
-	trainFromDataSet(0.3);
+	trainFromDataSet(0.01);
 	//outputFromGPUNet("lotrBW.png", "output.png");
 	
 	/*

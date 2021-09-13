@@ -157,12 +157,12 @@ GPUNet* loadGPUNet() {
 	int numLayers = standardNetSize;
 	hostStruct->numLayers = numLayers;
 	// allocating outer memory on cpu (inner memory will be allocated on gpu)
-	double** hostWeights, **hostBiases, **hostWeightAdjustments, **hostLayerInput;
+	double** hostWeights, **hostBiases, **hostWeightAdjustments, **hostLayerInput, ** hostDeltas;
 	int* numInputs, * numOutputs;
 	hostWeights = (double**) malloc(sizeof(double*)*numLayers);
 	hostBiases = (double**) malloc(sizeof(double*)*numLayers);
-	hostWeightAdjustments = (double**) malloc(sizeof(double*)*numLayers);
-	hostWeightAdjustments = (double**) malloc(sizeof(double*)*numLayers);
+	//hostWeightAdjustments = (double**) malloc(sizeof(double*)*numLayers);
+	hostDeltas = (double**)malloc(sizeof(double*) * numLayers);
 	hostLayerInput= (double**) malloc(sizeof(double*)*numLayers);
 	numInputs = (int*)malloc(sizeof(int) * numLayers);
 	numOutputs = (int*)malloc(sizeof(int) * numLayers);
@@ -170,7 +170,8 @@ GPUNet* loadGPUNet() {
 	//setting allocating memory to struct
 	hostStruct->weights = hostWeights;
 	hostStruct->biases = hostBiases;
-	hostStruct->weightAdjustments = hostWeightAdjustments;
+	//hostStruct->weightAdjustments = hostWeightAdjustments;
+	hostStruct->deltas = hostDeltas;
 	hostStruct->layerInput = hostLayerInput;
 	hostStruct->numInputs = numInputs;
 	hostStruct->numOutputs = numOutputs;
@@ -203,9 +204,10 @@ GPUNet* loadGPUNet() {
 		numOutputs[i] = specificOutputSize;
 		
 		// allocating inner memory on gpu
-		double* innerDeviceWeights, *deviceInnerBiases, *deviceInnerWeightAdjustments, *deviceInnerLayerInput;
+		double* innerDeviceWeights, *deviceInnerBiases, *deviceInnerWeightAdjustments, *deviceInnerLayerInput, *deviceInnerDeltas;
 		cudaErrorCheck(cudaMalloc(&innerDeviceWeights, sizeof(double) * specificInputSize * specificOutputSize));
-		cudaErrorCheck(cudaMalloc(&deviceInnerWeightAdjustments, sizeof(double) * specificInputSize * specificOutputSize));
+		//cudaErrorCheck(cudaMalloc(&deviceInnerWeightAdjustments, sizeof(double) * specificInputSize * specificOutputSize));
+		cudaErrorCheck(cudaMalloc(&deviceInnerDeltas, sizeof(double)  * specificOutputSize));
 		cudaErrorCheck(cudaMalloc(&deviceInnerBiases, sizeof(double) * specificOutputSize));
 		cudaErrorCheck(cudaMalloc(&deviceInnerLayerInput, sizeof(double) * specificInputSize * numInputSquares));
 		// seeing if we have a weights file for this
@@ -272,8 +274,9 @@ GPUNet* loadGPUNet() {
 		// setting the inner pointers to the gpu allocated memory
 		hostWeights[i] = innerDeviceWeights;
 		hostBiases[i] = deviceInnerBiases;
-		hostWeightAdjustments[i] = deviceInnerWeightAdjustments;
+		//hostWeightAdjustments[i] = deviceInnerWeightAdjustments;
 		hostLayerInput[i] = deviceInnerLayerInput;
+		hostDeltas[i] = deviceInnerDeltas;
 	}
 
 	// returning the struct containing gpu allocated pointer
@@ -330,6 +333,80 @@ void writeGPUNet(GPUNet* net) {
 		fclose(toWrite);
 		weightFile = string("weights.txt");
 	}
+}
+
+// keep in mind we might have multiple inputs, so we can take the average gradient towards the end
+// this kernel is agnostic to the number of input patches to the neural net
+__global__ void backPropogationGradientCalculationOutputLayer(double* actualOutputs, double* netOutputs, double* outputDeltas, int numOutputs) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	for (int i = tid;i < numOutputs; i += gridDim.x * blockDim.x) {
+		outputDeltas[i] = (netOutputs[i]-actualOutputs[i]) * netOutputs[i] * (1 - netOutputs[i]);
+	}
+}
+
+__global__ void backPropogationGradientCalculationHiddenLayer(double* layerOutput, double* outputDeltas, double* nextLayerWeights, double* nextLayerDeltas, int numLayerOutputs, int numNextLayerOutputs) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	//firstly getting sum delta of associated successive layer, and then multiplying derivative as well
+	for (int i = tid;i < numLayerOutputs; i += gridDim.x * blockDim.x) {
+		for (int j = 0;j < numNextLayerOutputs;j++) {
+			//delta calculation
+			outputDeltas[i] += nextLayerDeltas[j] * nextLayerWeights[(j * numLayerOutputs) + i] * layerOutput[i] * (1-layerOutput[i]);
+		}
+	}
+}
+
+//function for getting average deltas for the updates
+// num outputs is the output size of the net itself on a single input
+// num inputs is the number of input patches given to the net
+__global__ void averageBatchGradient(double* gradientMatrix, double* outputAverage, int numInputs, int numOutputs) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	for (int i = tid;i < numOutputs;i+=gridDim.x*blockDim.x) {
+		for (int j = 0;j < numInputs;j++) {
+			outputAverage[i] += gradientMatrix[(i * numInputs) + j];
+		}
+		// average calculation
+		outputAverage[i] /= numInputs;
+	}
+}
+
+//function that actually updates the weights based on the deltas, we will just use the last input as the basis for backtracking
+__global__ void finalizeUpdate(double* layerInputs, double* layerDeltas, double* layerBiases, double learningRate, double* weights, int numOutputs, int numInputs) {
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	for (int i = tid;i < numOutputs;i+=gridDim.x*blockDim.x) {
+		for (int j = 0;j < numInputs;j++) {
+			weights[(i * numInputs) + j] -= learningRate * layerDeltas[i] * layerInputs[j];
+		}
+		layerBiases[i] -= learningRate * layerDeltas[i];
+	}
+}
+
+void batchBackPropogation(GPUNet* toTrain,double* finalOutput,double* netOutput,double learningRate) {
+	double* deviceFinalOutput, *deviceNetOutput;
+	cudaErrorCheck(cudaMalloc(&deviceFinalOutput, sizeof(double) * outputSize * numInputSquares));
+	cudaErrorCheck(cudaMalloc(&deviceNetOutput, sizeof(double) * outputSize * numInputSquares));
+	cudaErrorCheck(cudaMemcpy(deviceNetOutput, netOutput, sizeof(double) * outputSize * numInputSquares, cudaMemcpyHostToDevice));
+	cudaErrorCheck(cudaMemcpy(deviceFinalOutput, finalOutput, sizeof(double) * outputSize * numInputSquares, cudaMemcpyHostToDevice));
+	for (int i = toTrain->numLayers - 1;i >= 0;i--) {
+		//memsetting the delta for this layer to all zeroes
+		cudaErrorCheck(cudaMemset(toTrain->deltas[i], 0, sizeof(double) * toTrain->numOutputs[i] * numInputSquares));
+		if (i == toTrain->numLayers - 1) {
+			// special kernel for output layer
+			backPropogationGradientCalculationOutputLayer << <20, 256 >> > (deviceFinalOutput,deviceNetOutput,toTrain->deltas[i],toTrain->numOutputs[i]);
+			// freeing device memory we no longer need
+			cudaErrorCheck(cudaFree(deviceFinalOutput));
+			cudaErrorCheck(cudaFree(deviceNetOutput));
+		}
+		else {
+			// then we have a hidden layer
+			backPropogationGradientCalculationHiddenLayer <<<20,256>>> (toTrain->layerInput[i+1],toTrain->deltas[i],toTrain->weights[i+1],toTrain->deltas[i+1],toTrain->numOutputs[i],toTrain->numOutputs[i+1]);
+		}
+	}
+
+	// doing weight updates
+	for (int i = 0;i < toTrain->numLayers;i++) {
+		finalizeUpdate << <20, 256>> > (toTrain->layerInput[i], toTrain->deltas[i], toTrain->biases[i],learningRate, toTrain->weights[i], toTrain->numOutputs[i], toTrain->numInputs[i]);
+	}
+	// now weights are updated
 }
 
 // does the initial step of backpropogation while evaluating (sets the adjustments to be the derivative values) (we are using sigmoid, so the derivative is just output(1-output)
@@ -426,7 +503,7 @@ void evaluateGPUNet(GPUNet* toEvaluate, double* inputs, double* outputBuffer) {
 			cudaErrorCheck(cudaMemcpy(toEvaluate->layerInput[i + 1], layerOutput, sizeof(double) * toEvaluate->numOutputs[i], cudaMemcpyDeviceToDevice));
 		}
 		//doing the propogation helper step
-		backPropogateGPUInputHelper <<<gridShape, blockShape>>> (toEvaluate->weightAdjustments[i], layerOutput, toEvaluate->numInputs[i], toEvaluate->numOutputs[i]);
+		//backPropogateGPUInputHelper <<<gridShape, blockShape>>> (toEvaluate->weightAdjustments[i], layerOutput, toEvaluate->numInputs[i], toEvaluate->numOutputs[i]);
 		cudaErrorCheck(cudaGetLastError());
 		cudaErrorCheck(cudaFree(layerOutput));
 
@@ -526,7 +603,7 @@ void batchedGPUEvaluate(GPUNet* toEvaluate, double* inputs, double* outputBuffer
 			cudaErrorCheck(cudaMemcpy(toEvaluate->layerInput[i + 1], layerOutput, sizeof(double) * toEvaluate->numOutputs[i] * numInputSquares, cudaMemcpyDeviceToDevice));
 		}
 		//doing the propogation helper step
-		backPropogateGPUInputHelper << <gridShape, blockShape >> > (toEvaluate->weightAdjustments[i], layerOutput, toEvaluate->numInputs[i], toEvaluate->numOutputs[i]);
+		//backPropogateGPUInputHelper << <gridShape, blockShape >> > (toEvaluate->weightAdjustments[i], layerOutput, toEvaluate->numInputs[i], toEvaluate->numOutputs[i]);
 		cudaErrorCheck(cudaGetLastError());
 		cudaErrorCheck(cudaFree(layerOutput));
 
@@ -745,44 +822,58 @@ void trainFromDataSet(double learningRate) {
 		// we will crop into perfect squares and then combine them to get the final image (we do not need to combine them for training though)
 		int trainCount = 0;
 		int imageCount = 0;
-		int numBatchesEvaluated = 0;
+		//int numBatchesEvaluated = 0;
 		//R,G,B training errors
-		vector<double> currTrainingError;
-		currTrainingError.push_back(0);
-		currTrainingError.push_back(0);
-		currTrainingError.push_back(0);
+		double currTrainingError = 0;
 		while (trainCount != epochNum) {
-			currTrainingError[0] = 0;
-			currTrainingError[1] = 0;
-			currTrainingError[2] = 0;
+			currTrainingError = 0;
+			// bwMatrix is the input to feed into the NN. each column of the matrix represents an input square of greyscale values
 			int* bwMatrix = (int*)malloc(sizeof(int) * squareSide * squareSide * numInputSquares);
+			//actual color matrix is the output to test again, where the columns of the matrix represent the actual color pixel values
+			int* actualColorMatrix = (int*)malloc(sizeof(int) * outputSize * numInputSquares);
+			double* scaledColorMatrix = (double*)malloc(sizeof(double) *  outputSize * numInputSquares); 
 			double* scaledBWMatrix = (double*)malloc(sizeof(double) * squareSide * squareSide * numInputSquares);
 			int* rowIndices = (int*)malloc(sizeof(int) * numInputSquares);
 			int* colIndices = (int*)malloc(sizeof(int) * numInputSquares);
 			int numSquaresInMatrix = 0;
 			for (int i = 0;i < randomImage.height();i += outputSquareSide ) {
 				for (int j = 0;j < randomImage.width();j += outputSquareSide ) {
+					//cout << "on pixel i: " << i << "and pixel j: " << j << "\n";
 					// getting the square for both the bw image and color image
 					int* bwSquare = (int*)malloc(sizeof(int) * squareSide * squareSide);
-					/*
+					
 					int* redSquare = (int*)malloc(sizeof(int) * outputSquareSide * outputSquareSide);
 					int* greenSquare = (int*)malloc(sizeof(int) * outputSquareSide * outputSquareSide);
 					int* blueSquare = (int*)malloc(sizeof(int) * outputSquareSide * outputSquareSide);
-					*/
+					
 
-					
-					
-					
-					
 					//getSquareWrapper(bwBuffer, bwSquare, squareSide, randomImage.height(), randomImage.width(), i, j);
 					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu before grabbing color squares: " << freeMem << "\n";
+					*/
 					getSquareWrapper(randomImage.data(), redSquare, outputSquareSide, randomImage.height(), randomImage.width(), i, j);
 					getSquareWrapper(randomImage.data() + (randomImage.height() * randomImage.width()), greenSquare, outputSquareSide, randomImage.height(), randomImage.width(), i, j);
 					getSquareWrapper(randomImage.data() + (2 * randomImage.height() * randomImage.width()), blueSquare, outputSquareSide, randomImage.height(), randomImage.width(), i, j);
+						
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu after grabbing color squares: " << freeMem << "\n";
 					*/
 
-					/*
-					if (trainCount == -1) {
+					// filling columns of color matrix with the actual values
+					for (int z = 0;z < outputSquareSide * outputSquareSide;z++) {
+						actualColorMatrix[(z * numInputSquares) + numSquaresInMatrix] = redSquare[z];
+						actualColorMatrix[((z+(outputSquareSide*outputSquareSide)) * numInputSquares) + numSquaresInMatrix] = greenSquare[z];
+						actualColorMatrix[((z+(2*outputSquareSide*outputSquareSide)) * numInputSquares) + numSquaresInMatrix] = greenSquare[z];
+					}
+
+					
+					
+
+					if (trainCount == epochNum-1) {
 						int* imageSquareBuffer = (int*)malloc(sizeof(int) * outputSize);
 						memcpy(imageSquareBuffer, redSquare, sizeof(int) * outputSquareSide * outputSquareSide);
 						memcpy(imageSquareBuffer + (outputSquareSide * outputSquareSide), greenSquare, sizeof(int) * outputSquareSide * outputSquareSide);
@@ -790,10 +881,27 @@ void trainFromDataSet(double learningRate) {
 						CImg<int> testColorSquare(imageSquareBuffer, outputSquareSide, outputSquareSide, 1, 3);
 						testColorSquare.save("testcolorSquare.jpg", imageCount);
 						free(imageSquareBuffer);
-					} */
+					} 
+
+					free(redSquare);
+					free(greenSquare);
+					free(blueSquare);
 
 					//filling columns of bwMatrix with patch buffers
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu before grabbing bw square: " << freeMem << "\n";
+					*/
+
 					getSquareWrapper(bwBuffer, bwSquare, squareSide, randomImage.height(), randomImage.width(), i, j);
+
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu after grabbing bw square: " << freeMem << "\n";
+					*/
+
 					rowIndices[numSquaresInMatrix] = i;
 					colIndices[numSquaresInMatrix] = j;
 					for (int z = 0;z < squareSide * squareSide; z++) {
@@ -812,13 +920,31 @@ void trainFromDataSet(double learningRate) {
 							for (int y = 0;y < squareSide * squareSide;y++) {
 								bwMatrix[(y * numInputSquares) + z] = 0;
 							}
+							for (int y = 0;y < outputSquareSide * outputSquareSide;y++) {
+								actualColorMatrix[(y * numInputSquares) + z] = 0;
+								actualColorMatrix[((y+(outputSquareSide*outputSquareSide)) * numInputSquares) + z] = 0;
+								actualColorMatrix[((y+(2*outputSquareSide*outputSquareSide)) * numInputSquares) + z] = 0;
+							}
 							rowIndices[z] = randomImage.height();
 							colIndices[z] = randomImage.width();
 						}
 					}
 					numSquaresInMatrix = 0;
 					// scale pixels by 255 for both bw image and color image
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu before scaling squares: " << freeMem << "\n";
+					*/
+
 					pixelScaleWrapper(bwMatrix, scaledBWMatrix, squareSide * squareSide, numInputSquares, 255);
+					pixelScaleWrapper(actualColorMatrix, scaledColorMatrix, outputSquareSide * outputSquareSide * 3, numInputSquares, 255);
+
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu after scaling squares: " << freeMem << "\n";
+					*/
 					/*
 					double* scaledBWSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
 					pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, 255 );
@@ -836,7 +962,6 @@ void trainFromDataSet(double learningRate) {
 					*/
 
 					// evaluate net for each part of the image
-					// we will have outputSize number of outputs, and we will train the net so that the output[0] is first pixels R, output[1],output[2] represent first pixels G and B value
 					double* outputBuffer = (double*)malloc(sizeof(double) * outputSize * numInputSquares);
 
 					
@@ -848,9 +973,21 @@ void trainFromDataSet(double learningRate) {
 					cout << "total free memory of gpu before evaluating net: " << freeMem << "\n";
 					*/
 
-					//evaluateGPUNet(toTrain, scaledBWSquare, outputBuffer);
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu before evaluating net: " << freeMem << "\n";
+					*/
 
-					batchedGPUEvaluate(toTrain, scaledBWMatrix, outputBuffer);
+					//batchedGPUEvaluate(toTrain, scaledBWMatrix, outputBuffer);
+
+					evaluateGPUNet(toTrain, scaledBWMatrix, outputBuffer);
+
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu after evaluating net: " << freeMem << "\n";
+					*/
 
 					// now we have an output matrix of size outputSize x numInputSquares
 					for (int p = 0;p < numInputSquares;p++) {
@@ -864,7 +1001,7 @@ void trainFromDataSet(double learningRate) {
 							int adjustedCol = colOfSquare + colAdjust;
 							// all the reds are together, greens are together and blues are together
 							if (adjustedRow < randomImage.height() && adjustedCol < randomImage.width()) {
-								// then we put colers in their correct spot
+								// then we put colors in their correct spot
 								finalBuffer[((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(z * numInputSquares) + p]*255;
 								finalBuffer[(randomImage.width() * randomImage.height())+((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(((outputSquareSide*outputSquareSide)+z) * numInputSquares) + p]*255;
 								finalBuffer[(2*randomImage.width() * randomImage.height())+((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(((2*outputSquareSide*outputSquareSide)+z) * numInputSquares) + p]*255;	
@@ -872,8 +1009,8 @@ void trainFromDataSet(double learningRate) {
 							
 						}
 					}
-					numBatchesEvaluated++;
-					cout << "on batch number: " << numBatchesEvaluated << " \n";
+					//numBatchesEvaluated++;
+					//cout << "on batch number: " << numBatchesEvaluated << " \n";
 
 					/*
 					for (int k = 0;k < outputSquareSide;k++) {
@@ -886,8 +1023,7 @@ void trainFromDataSet(double learningRate) {
 						}
 					}*/
 
-					/*
-					if (trainCount == -1) {
+					if (trainCount == epochNum - 1) {
 						double* copyOfOutput = (double*)malloc(sizeof(double) * outputSize);
 						memcpy(copyOfOutput, outputBuffer, sizeof(double) * outputSize);
 						for (int k = 0;k < outputSize;k++) {
@@ -897,7 +1033,7 @@ void trainFromDataSet(double learningRate) {
 						testBuffer.save("testSquareImage.jpg", imageCount);
 						free(copyOfOutput);
 						imageCount++;
-					} */
+					}
 
 					/*
 					cudaMemGetInfo(&freeMem, &totalMem);
@@ -919,6 +1055,12 @@ void trainFromDataSet(double learningRate) {
 							currTrainingError[2] += pow(scaledBlueSquare[z -(outputSquareSide*outputSquareSide *2)] - outputBuffer[z], 2.0);
 						}
 					}*/
+
+					//incrementing training error
+					// buffer output is directly lined up with the actual output, so we can just get the total error
+					for (int z = 0;z < outputSize * numInputSquares;z++) {
+						currTrainingError += pow(outputBuffer[z] - scaledColorMatrix[z], 2);
+					}
 						
 					
 					
@@ -930,7 +1072,18 @@ void trainFromDataSet(double learningRate) {
 					*/
 
 					//backPropogateGPUNet(toTrain, outputBuffer, scaledRedSquare, scaledGreenSquare, scaledBlueSquare, learningRate);
-					
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu before backprop net: " << freeMem << "\n";
+					*/
+					batchBackPropogation(toTrain, scaledColorMatrix, outputBuffer, learningRate);
+
+					/*
+					cudaMemGetInfo(&freeMem, &totalMem);
+					cout << "total memory of gpu: " << totalMem << "\n";
+					cout << "total free memory of gpu after backprop net: " << freeMem << "\n";
+					*/
 					/*
 					cudaMemGetInfo(&freeMem, &totalMem);
 					cout << "total free memory of gpu after backpropogation: " << freeMem << "\n";
@@ -949,20 +1102,20 @@ void trainFromDataSet(double learningRate) {
 			}
 			free(bwMatrix);
 			free(scaledBWMatrix);
+			free(actualColorMatrix);
+			free(scaledColorMatrix);
 			free(rowIndices);
 			free(colIndices);
 
 			cout << "FINISHED EPOCH: " << trainCount << "\n";
 			// printing out the current training error
-			printf("red error: %lf\n", currTrainingError[0]);
-			printf("green error: %lf\n", currTrainingError[1]);
-			printf("blue error: %lf\n", currTrainingError[2]);
+			printf("current training error: %lf\n", currTrainingError);
 
 			
-			if (trainCount == -1) {
+			if (trainCount == epochNum-1) {
 				double* layer2Weights = (double*)malloc(sizeof(double) * toTrain->numInputs[1] * toTrain->numOutputs[1]);
 				cudaMemcpy(layer2Weights, toTrain->weights[1], sizeof(double) * toTrain->numInputs[1] * toTrain->numOutputs[1], cudaMemcpyDeviceToHost);
-				cout << "layer 2 weight 40: " << layer2Weights[40] << " \n";
+				cout << "layer 2 weight 10: " << layer2Weights[10] << " \n";
 				CImg<int> testedOutput(finalBuffer, randomImage.width(), randomImage.height(), 1, 3);
 				testedOutput.save("checkThisOut.png");
 				free(layer2Weights);
