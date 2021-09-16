@@ -255,13 +255,15 @@ __global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLen
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
     for (int i = tidx;i < squareSideLength;i += gridDim.x * blockDim.x) {
         for (int j =  tidy;j <  squareSideLength;j += gridDim.y * blockDim.y) {
-            if (i+pixelRow >= rowDim || j+pixelCol>= colDim) {
+            int adjustedRow = i - (squareSideLength / 2) + pixelRow;
+            int adjustedCol = j - (squareSideLength / 2) + pixelCol;
+            if (adjustedRow < 0 || adjustedRow >= rowDim || adjustedCol <0 || adjustedCol >=pixelCol) {
                 // then this should just be black in the square
                 squarePixels[(i* squareSideLength) + j] = 0;
             }
             else {
                 // then this should just propogate the input pixel
-                squarePixels[(i* squareSideLength) + j] = inputPixels[((i+pixelRow) * colDim) + (j+pixelCol)];
+                squarePixels[(i* squareSideLength) + j] = inputPixels[(adjustedRow * colDim) + adjustedCol];
             }
         }
     }

@@ -10,8 +10,10 @@
 #include "NeuralNet.h"
 
 #include "GPUSecondNeuralNet.cuh"
+#include <iostream>
 
 using namespace cimg_library;
+using namespace std;
 
 /*Function Prototypes*/
 // below are gpu calls
@@ -53,8 +55,9 @@ int main(int argc, char* argv[]) {
 	*/
 
 	
-	trainFromDataSet(0.01);
-	//outputFromGPUNet("lotrBW.png", "output.png");
+	trainFromDataSet(0.3);
+	//outputFromGPUNet("boatBW.jpg", "Crazyoutput.png");
+	//if(testCublas()) cout << "SUCCESSS!\n";
 	
 	/*
 	CImg<int> test("blackAndWhite.jpg");
