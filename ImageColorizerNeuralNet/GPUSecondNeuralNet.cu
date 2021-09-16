@@ -209,10 +209,10 @@ __global__ void initializeGPUNet(double* weights, double* randomNumbers, double*
 	int tidy = blockDim.y * blockIdx.y + threadIdx.y;
 	for (int j = tidx; j < numInputs;j += gridDim.x * blockDim.x) {
 		for (int z = tidy; z < numOutputs;z += gridDim.y * blockDim.y) {
-			weights[(z * numInputs) + j] = randomNumbers[(z * numInputs) + j]/(numOutputs*2);
+			weights[(z * numInputs) + j] = randomNumbers[(z * numInputs) + j]/(numInputs);
 			//weights[(z * numInputs) + j] = 0;
 			if (tidx == 0) {
-				biases[z] = randomNumbers[(z * numInputs) + j]/(numOutputs*2);
+				biases[z] = 0;
 			}
 		}
 	}
@@ -440,14 +440,15 @@ __global__ void backPropogationGradientCalculationHiddenLayer(double* layerOutpu
 		for (int j = 0;j < numNextLayerOutputs;j++) {
 			//delta calculation
 			//sigmoid derivative
-			//outputDeltas[i] += nextLayerDeltas[j] * nextLayerWeights[(j * numLayerOutputs) + i] * layerOutput[i] * (1-layerOutput[i]);
+			outputDeltas[i] += nextLayerDeltas[j] * nextLayerWeights[(j * numLayerOutputs) + i] * layerOutput[i] * (1-layerOutput[i]);
 			//relu derivative
+			/*
 			if (layerOutput[i] == 0) {
 					outputDeltas[i] += nextLayerDeltas[j] * nextLayerWeights[(j * numLayerOutputs) + i] * 0;
 			}
 			else {
 					outputDeltas[i] += nextLayerDeltas[j] * nextLayerWeights[(j * numLayerOutputs) + i] * 1;
-			}
+			} */
 			
 			
 		}
@@ -779,7 +780,16 @@ void batchedGPUEvaluate(GPUNet* toEvaluate, double* inputs, double* outputBuffer
 
 		// applying sigmoid to the output
 
-		sigmoidMatrix << <20, 512 >> > (layerOutput, toEvaluate->numOutputs[i] * numInputSquares);
+		//sigmoidMatrix << <20, 512 >> > (layerOutput, toEvaluate->numOutputs[i] * numInputSquares);
+		// applying sigmoid to the output layer and relu to the other layers
+	
+		//if (i == toEvaluate->numLayers - 1) {
+			sigmoidMatrix <<<20,512 >>> (layerOutput, toEvaluate->numOutputs[i] * numInputSquares);
+		//}
+		//else {
+			
+		//	reluMatrix<<<20,512 >>> (layerOutput, toEvaluate->numOutputs[i]*numInputSquares);
+		//}
 		cudaErrorCheck(cudaGetLastError());
 
 		//double* sigmoidedCheck = (double*)malloc(sizeof(double) * toEvaluate->numInputs[i] * toEvaluate->numOutputs[i]);
@@ -951,7 +961,7 @@ void outputFromGPUNet(char* imageName, char* outputImageName) {
 
 				// scale pixels by 255 for both bw image and color image
 				double* scaledBWSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-				pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, 510);
+				pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, inputPixelScaler);
 				free(bwSquare);
 
 				// evaluate net for each part of the image
@@ -964,7 +974,7 @@ void outputFromGPUNet(char* imageName, char* outputImageName) {
 				double* copyOfOutput = (double*)malloc(sizeof(double) * outputSize);
 				memcpy(copyOfOutput, outputBuffer, sizeof(double) * outputSize);
 				for (int k = 0;k < outputSize;k++) {
-					copyOfOutput[k] *= 510;
+					copyOfOutput[k] *= inputPixelScaler;
 				}
 				CImg<double> testBuffer(copyOfOutput, outputSquareSide, outputSquareSide, 1, 3);
 				testBuffer.save("OutputSquareImage.jpg", imageCount);
@@ -975,9 +985,9 @@ void outputFromGPUNet(char* imageName, char* outputImageName) {
 			for (int k = 0;k < outputSquareSide;k++) {
 				for (int y = 0;y < outputSquareSide;y++) {
 					if (i + k < chosenImage.height() && y + j < chosenImage.width()){
-						finalBuffer[((i + k) * chosenImage.width()) + (j + y)] = outputBuffer[(k * outputSquareSide) + y]*510;
-						finalBuffer[(chosenImage.width() * chosenImage.height())+((i + k) * chosenImage.width()) + (j + y)] = outputBuffer[(outputSquareSide*outputSquareSide)+(k * outputSquareSide) + y]*510;
-						finalBuffer[(2*chosenImage.width() * chosenImage.height())+((i + k) * chosenImage.width()) + (j + y)] = outputBuffer[(2*outputSquareSide*outputSquareSide)+(k * outputSquareSide) + y]*510;
+						finalBuffer[((i + k) * chosenImage.width()) + (j + y)] = outputBuffer[(k * outputSquareSide) + y]*inputPixelScaler;
+						finalBuffer[(chosenImage.width() * chosenImage.height())+((i + k) * chosenImage.width()) + (j + y)] = outputBuffer[(outputSquareSide*outputSquareSide)+(k * outputSquareSide) + y]*inputPixelScaler;
+						finalBuffer[(2*chosenImage.width() * chosenImage.height())+((i + k) * chosenImage.width()) + (j + y)] = outputBuffer[(2*outputSquareSide*outputSquareSide)+(k * outputSquareSide) + y]*inputPixelScaler;
 					}
 				}
 			}	
@@ -1080,16 +1090,16 @@ double testFromTestData(GPUNet* toTest) {
 			cout << "total free memory of gpu after scaling squares: " << freeMem << "\n";
 			*/
 			double* scaledBWSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-			pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, 510);
+			pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, inputPixelScaler);
 			free(bwSquare);
 			double* scaledRedSquare = (double*)malloc(sizeof(double) * outputSquareSide * outputSquareSide);
-			pixelScaleWrapper(redSquare, scaledRedSquare, outputSquareSide, outputSquareSide,510);
+			pixelScaleWrapper(redSquare, scaledRedSquare, outputSquareSide, outputSquareSide,inputPixelScaler);
 			free(redSquare);
 			double* scaledGreenSquare = (double*)malloc(sizeof(double) * outputSquareSide * outputSquareSide);
-			pixelScaleWrapper(greenSquare, scaledGreenSquare, outputSquareSide, outputSquareSide,510);
+			pixelScaleWrapper(greenSquare, scaledGreenSquare, outputSquareSide, outputSquareSide,inputPixelScaler);
 			free(greenSquare);
 			double* scaledBlueSquare = (double*)malloc(sizeof(double) * outputSquareSide * outputSquareSide);
-			pixelScaleWrapper(blueSquare, scaledBlueSquare, outputSquareSide, outputSquareSide,510);
+			pixelScaleWrapper(blueSquare, scaledBlueSquare, outputSquareSide, outputSquareSide,inputPixelScaler);
 			free(blueSquare);
 
 			//cout << "scaled squares!\n";
@@ -1184,9 +1194,9 @@ double testFromTestData(GPUNet* toTest) {
 					// all the reds are together, greens are together and blues are together
 					if (adjustedRow < randomImage.height() && adjustedCol < randomImage.width()) {
 						// then we put colors in their correct spot
-						finalBuffer[((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(z * numInputSquares)+k]*510;
-						finalBuffer[(randomImage.width() * randomImage.height())+((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(((outputSquareSide*outputSquareSide)+z) * numInputSquares)+k]*510;
-						finalBuffer[(2*randomImage.width() * randomImage.height())+((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(((2*outputSquareSide*outputSquareSide)+z) * numInputSquares)+k]*510;	
+						finalBuffer[((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(z * numInputSquares)+k]*inputPixelScaler;
+						finalBuffer[(randomImage.width() * randomImage.height())+((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(((outputSquareSide*outputSquareSide)+z) * numInputSquares)+k]*inputPixelScaler;
+						finalBuffer[(2*randomImage.width() * randomImage.height())+((adjustedRow) * randomImage.width()) + (adjustedCol)] = outputBuffer[(((2*outputSquareSide*outputSquareSide)+z) * numInputSquares)+k]*inputPixelScaler;	
 					}
 				
 				}
@@ -1284,23 +1294,30 @@ void trainFromDataSet(double learningRate) {
 				int* greenSquare = (int*)malloc(sizeof(int) * outputSquareSide * outputSquareSide);
 				int* blueSquare = (int*)malloc(sizeof(int) * outputSquareSide * outputSquareSide);
 
+				getSquareWrapper(bwBuffer, bwSquare, squareSide, randomImage.height(), randomImage.width(), randomPixelRow, randomPixelCol);
 				getSquareWrapper(randomImage.data(), redSquare, outputSquareSide, randomImage.height(), randomImage.width(), randomPixelRow, randomPixelCol);
 				getSquareWrapper(randomImage.data() + (randomImage.height() * randomImage.width()), greenSquare, outputSquareSide, randomImage.height(), randomImage.width(), randomPixelRow, randomPixelCol);
 				getSquareWrapper(randomImage.data() + (2 * randomImage.height() * randomImage.width()), blueSquare, outputSquareSide, randomImage.height(), randomImage.width(), randomPixelRow, randomPixelCol);
 
+				//debug
+				/*
+				for (int z = 0;z < outputSquareSide * outputSquareSide;z++) {
+					cout << "red pixel value: " << redSquare[z] << "\n";
+				} */
+
 
 				// scaling squares by 255
 				double* scaledBWSquare = (double*)malloc(sizeof(double) * squareSide * squareSide);
-				pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, 510);
+				pixelScaleWrapper(bwSquare, scaledBWSquare, squareSide, squareSide, inputPixelScaler);
 				free(bwSquare);
 				double* scaledRedSquare = (double*)malloc(sizeof(double) * outputSquareSide * outputSquareSide);
-				pixelScaleWrapper(redSquare, scaledRedSquare, outputSquareSide, outputSquareSide, 510);
+				pixelScaleWrapper(redSquare, scaledRedSquare, outputSquareSide, outputSquareSide, inputPixelScaler);
 				free(redSquare);
 				double* scaledGreenSquare = (double*)malloc(sizeof(double) * outputSquareSide * outputSquareSide);
-				pixelScaleWrapper(greenSquare, scaledGreenSquare, outputSquareSide, outputSquareSide, 510);
+				pixelScaleWrapper(greenSquare, scaledGreenSquare, outputSquareSide, outputSquareSide, inputPixelScaler);
 				free(greenSquare);
 				double* scaledBlueSquare = (double*)malloc(sizeof(double) * outputSquareSide * outputSquareSide);
-				pixelScaleWrapper(blueSquare, scaledBlueSquare, outputSquareSide, outputSquareSide, 510);
+				pixelScaleWrapper(blueSquare, scaledBlueSquare, outputSquareSide, outputSquareSide, inputPixelScaler);
 				free(blueSquare);
 
 				// filling the bwmatrix and color matrix for batched training
@@ -1347,58 +1364,72 @@ void trainFromDataSet(double learningRate) {
 
 				// running output of the scaled black and white squares
 
-				double* outputBuffer = (double*)malloc(sizeof(double) * outputSize * numInputSquares);
+				//while (true) {
+					double* outputBuffer = (double*)malloc(sizeof(double) * outputSize * numInputSquares);
 
-				int count = 0;
-				//evaluateGPUNet(toTrain, scaledBWSquare, outputBuffer);
-				batchedGPUEvaluate(toTrain, bwMatrix, outputBuffer);
-
-
-				// incrementing training error	
-				/*
-				for (int z = 0;z < outputSize;z++) {
-					currTrainingError += 0.5 * pow(outputBuffer[z] - accumulatedActualValues[z], 2);
-				} */
-				for (int z = 0;z < outputSize * numInputSquares;z++) {
-					currTrainingError += 0.5 * pow(outputBuffer[z] - colorMatrix[z], 2);
-				}
-
-				// backprop for the batch
-				batchBackPropogation(toTrain, colorMatrix, outputBuffer, learningRate);
-
-				//debugging for output	
-				/*
-				for (int z = 0;z < outputSize;z++) {
-					outputBuffer[z] *= 510;
-				}
+					int count = 0;
+					//evaluateGPUNet(toTrain, scaledBWSquare, outputBuffer);
+					batchedGPUEvaluate(toTrain, bwMatrix, outputBuffer);
 
 
-				if (count == 0) {
+					// incrementing training error	
+					/*
 					for (int z = 0;z < outputSize;z++) {
-						accumulatedActualValues[z] *= 510;
+						currTrainingError += 0.5 * pow(outputBuffer[z] - accumulatedActualValues[z], 2);
+					} */
+					for (int z = 0;z < outputSize * numInputSquares;z++) {
+						currTrainingError += 0.5 * pow(outputBuffer[z] - colorMatrix[z], 2);
+						//debug
+						/*
+						cout << "obtained pixel value: " << outputBuffer[z] * inputPixelScaler << "\n";
+						cout << "actual pixel value: " << colorMatrix[z] * inputPixelScaler << "\n";
+						*/
+
 					}
-					CImg<double> actualColor(accumulatedActualValues, outputSquareSide, outputSquareSide, 1, 3);
-					actualColor.save("actualPatch.jpg", trainCount);
+					//debug
+					/*
+					cout << "current error: " << currTrainingError << "\n";
+					currTrainingError = 0;
+					*/
+
+
+					// backprop for the batch
+					batchBackPropogation(toTrain, colorMatrix, outputBuffer, learningRate);
+
+					//debugging for output	
+					/*
 					for (int z = 0;z < outputSize;z++) {
-						accumulatedActualValues[z] /= 510;
+						outputBuffer[z] *= inputPixelScaler;
 					}
-					count++;
-				}
 
-				CImg<double> guessedColor(outputBuffer, outputSquareSide, outputSquareSide, 1, 3);
-				guessedColor.save("guessedPatch.jpg", trainCount);
-				*/
 
-				// freeing memory we no longer need
-				/*
-				free(accumulatedActualValues);
-				free(scaledBWSquare);
-				free(scaledRedSquare);
-				free(scaledGreenSquare);
-				free(scaledBlueSquare);
-				free(bwBuffer);
-				*/
-				free(outputBuffer);
+					if (count == 0) {
+						for (int z = 0;z < outputSize;z++) {
+							accumulatedActualValues[z] *= inputPixelScaler;
+						}
+						CImg<double> actualColor(accumulatedActualValues, outputSquareSide, outputSquareSide, 1, 3);
+						actualColor.save("actualPatch.jpg", trainCount);
+						for (int z = 0;z < outputSize;z++) {
+							accumulatedActualValues[z] /= inputPixelScaler;
+						}
+						count++;
+					}
+
+					CImg<double> guessedColor(outputBuffer, outputSquareSide, outputSquareSide, 1, 3);
+					guessedColor.save("guessedPatch.jpg", trainCount);
+					*/
+
+					// freeing memory we no longer need
+					/*
+					free(accumulatedActualValues);
+					free(scaledBWSquare);
+					free(scaledRedSquare);
+					free(scaledGreenSquare);
+					free(scaledBlueSquare);
+					free(bwBuffer);
+					*/
+					free(outputBuffer);
+				//}
 
 
 				// printing out the current training error
@@ -1414,7 +1445,7 @@ void trainFromDataSet(double learningRate) {
 		writeGPUNet(toTrain);
 		cout << "testing net on testing data now...\n";
 		// forget testing for now, since we need to train a lot more
-		// double testError = testFromTestData(toTrain);
+		double testError = testFromTestData(toTrain);
 	}	
 }
 

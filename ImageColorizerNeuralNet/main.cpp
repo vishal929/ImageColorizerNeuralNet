@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 	sigmoidMatrixTest(input, output, 1000);
 	*/
 
-	
+	//testFromTestData(NULL);
 	trainFromDataSet(0.3);
 	//outputFromGPUNet("boatBW.jpg", "Crazyoutput.png");
 	//if(testCublas()) cout << "SUCCESSS!\n";

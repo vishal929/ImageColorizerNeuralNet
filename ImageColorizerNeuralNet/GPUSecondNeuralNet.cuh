@@ -15,7 +15,10 @@
 #define standardNetSize 2
 
 //defining a batch size for gpu evaluation speedup (we evaluate 150000 patches at the same time and average)
-#define numInputSquares 150000
+#define numInputSquares 100
+
+// defining a scalar for input pixels
+#define inputPixelScaler 255.0
 
 // defining the data organization of our net on the gpu
 typedef struct GPUNet {
