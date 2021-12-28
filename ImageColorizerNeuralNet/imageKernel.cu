@@ -8,32 +8,32 @@
 
 
 // purpose of this kernel is to do a black and white transformation on a color image, represented by the colorImage array of color pixel values
-__global__ void makeImageBlackAndWhite(int* colorR, int* colorG, int* colorB, int* bwImage, int rowDim, int colDim) {
+__global__ void makeImageBlackAndWhite(double* colorR, double* colorG, double* colorB, double* bwImage, int rowDim, int colDim) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     // looping through each pixel and applying the transformation
     const int maxDim = rowDim * colDim;
     for (int i = tid; i < maxDim; i += blockDim.x * gridDim.x) {
         // storing transformed pixel in bwImage
-        bwImage[i] = (int)(0.21 * ((double)(colorR[i])) + 0.72 * ((double)(colorG[i])) + 0.07 * ((double)(colorB[i])));
+        bwImage[i] = (0.21 * ((colorR[i])) + 0.72 * ((colorG[i])) + 0.07 * ((colorB[i])));
     }
 }
 
 // function that just wraps cpu logic with the kernel call for black and white image
 // IMPORTANT: all inputted parameters should be allocated before calling the function wrapper
-void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* bwImage, int rowDim, int colDim) {
+void makeImageBlackAndWhiteWrapper(double* colorR, double* colorG, double* colorB, double* bwImage, int rowDim, int colDim) {
     // first allocating gpu memory
-    int* deviceR, * deviceG, * deviceB, * deviceBWImage;
-    cudaErrorCheck(cudaMalloc(&deviceR, sizeof(int) * rowDim * colDim));
+    double* deviceR, * deviceG, * deviceB, * deviceBWImage;
+    cudaErrorCheck(cudaMalloc(&deviceR, sizeof(double) * rowDim * colDim));
     
-    cudaErrorCheck(cudaMalloc(&deviceG, sizeof(int) * rowDim * colDim));
-    cudaErrorCheck(cudaMalloc(&deviceB, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceG, sizeof(double) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceB, sizeof(double) * rowDim * colDim));
     
 
-    cudaErrorCheck(cudaMalloc(&deviceBWImage, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceBWImage, sizeof(double) * rowDim * colDim));
     // copying from host to device
-    cudaErrorCheck(cudaMemcpy(deviceR, colorR, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
-    cudaErrorCheck(cudaMemcpy(deviceG, colorG, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
-    cudaErrorCheck(cudaMemcpy(deviceB, colorB, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceR, colorR, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceG, colorG, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceB, colorB, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling the kernel (for a 1080p image, we can launch 8100 blocks with 256 threads each)
     makeImageBlackAndWhite<< <20, 512>> >(deviceR, deviceG, deviceB, deviceBWImage, rowDim, colDim);
     cudaError_t lastError = cudaGetLastError();
@@ -42,7 +42,7 @@ void makeImageBlackAndWhiteWrapper(int* colorR, int* colorG, int* colorB, int* b
     }
     
     // copying result to host mem
-    cudaErrorCheck(cudaMemcpy(bwImage, deviceBWImage, sizeof(int) * rowDim * colDim, cudaMemcpyDeviceToHost));
+    cudaErrorCheck(cudaMemcpy(bwImage, deviceBWImage, sizeof(double) * rowDim * colDim, cudaMemcpyDeviceToHost));
     
     // freeing allocated gpu memory
     cudaErrorCheck(cudaFree(deviceR));
@@ -250,7 +250,7 @@ void getPatchWrapper(double* imagePixels, double* imagePatch, int rowDim, int co
     cudaFree(deviceImagePatch);
 }
 
-__global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
+__global__ void getSquare(double* inputPixels, double* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
     int tidx = blockDim.x * blockIdx.x + threadIdx.x;
     int tidy = blockDim.y * blockIdx.y + threadIdx.y;
     for (int i = tidx;i < squareSideLength;i += gridDim.x * blockDim.x) {
@@ -269,9 +269,34 @@ __global__ void getSquare(int* inputPixels, int* squarePixels, int squareSideLen
     }
 }
 
-//wrapper for getting the square kernel
-void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
-    int* devicePixels, * deviceSquarePixels;
+
+
+// gets all the squares around pixels for the number of squares requested
+// each thread handles a single square around a pixel
+// this is more for evaluating the neural net, because we can just evaluate all the squares at once (or as many as possible), so it makes sense to grab as many squares as possible
+__global__ void getSquares(double* inputPixels, double* squares, int squareSideLength, int rowDim, int colDim, int numSquares, int startPixel) {
+   int tidx = blockDim.x * blockIdx.x + threadIdx.x;
+   for (int i = tidx; i < numSquares; i += gridDim.x * blockDim.x) {
+       for (int j = 0;j < squareSideLength;j++) {
+           for (int z = 0; z < squareSideLength;z++) {
+                int adjustedRow = j- (squareSideLength/2) + ((startPixel + i)/colDim);
+                int adjustedCol = z- (squareSideLength/2) + ((startPixel + i) % colDim);
+                if (adjustedRow < 0 || adjustedRow >= rowDim || adjustedCol < 0 || adjustedCol >= colDim) {
+                    // then this should just be black in the square
+                    squares[(((j*squareSideLength)+z) * numSquares) + i] = 0;
+                }
+                else {
+                    // then this should just propogate the input pixel
+                    squares[(((j*squareSideLength)+z) * numSquares) + i] = inputPixels[(adjustedRow * colDim) + adjustedCol];
+                }
+           }
+       }
+       
+   }
+}
+
+void getSquaresWrapper(double* inputPixels, double* squares, int squareSideLength, int rowDim, int colDim, int numSquares, int startPixel) {
+    double* devicePixels, * deviceSquares;
     /*
     size_t freeMem;
     size_t totalMem;
@@ -279,8 +304,8 @@ void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength,
     printf("total memory of gpu: %ul\n",totalMem);
     printf( "total free memory of gpu before square allocation: %ul\n",freeMem);
     */
-    cudaErrorCheck(cudaMalloc(&devicePixels, sizeof(int) * rowDim * colDim));
-    cudaErrorCheck(cudaMalloc(&deviceSquarePixels, sizeof(int) * squareSideLength * squareSideLength));
+    cudaErrorCheck(cudaMalloc(&devicePixels, sizeof(double) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceSquares, sizeof(double) * squareSideLength * squareSideLength * numSquares));
 
     /*
     cudaMemGetInfo(&freeMem, &totalMem);
@@ -288,15 +313,73 @@ void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength,
     printf( "total free memory of gpu after square allocation: %ul\n",freeMem);
     */
 
-    cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
+    
+    //calling kernel
+    getSquares<<<20,512>>>(devicePixels, deviceSquares, squareSideLength, rowDim, colDim, numSquares, startPixel);
+
+    cudaError_t lastError = cudaGetLastError();
+    if (lastError != cudaSuccess) {
+        printf("error with get get squares wrapper %s\n", cudaGetErrorString(lastError));
+    }
+
+    //copying to host
+    cudaErrorCheck(cudaMemcpy(squares, deviceSquares, sizeof(double) * squareSideLength * squareSideLength * numSquares, cudaMemcpyDeviceToHost));
+
+    // freeing memory
+    cudaErrorCheck(cudaFree(devicePixels));
+    cudaErrorCheck(cudaFree(deviceSquares));
+}
+
+void getSquareCPU(double* inputPixels, double* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
+    for (int i = 0;i < squareSideLength;i++) {
+        for (int j = 0;j < squareSideLength;j++) {
+            int adjustedRow = i - (squareSideLength / 2) + pixelRow;
+            int adjustedCol = j - (squareSideLength / 2) + pixelCol;
+            if (adjustedRow < 0 || adjustedRow >= rowDim || adjustedCol <0 || adjustedCol >=colDim) {
+                // then this should just be black in the square
+                squarePixels[(i* squareSideLength) + j] = 0;
+            }
+            else {
+                // then this should just propogate the input pixel
+                squarePixels[(i* squareSideLength) + j] = inputPixels[(adjustedRow * colDim) + adjustedCol];
+            }
+        }
+    }
+}
+
+//wrapper for getting the square kernel
+void getSquareWrapper(double* inputPixels, double* squarePixels, int squareSideLength, int rowDim, int colDim, int pixelRow, int pixelCol) {
+    double* devicePixels, * deviceSquarePixels;
+    /*
+    size_t freeMem;
+    size_t totalMem;
+    cudaMemGetInfo(&freeMem, &totalMem);
+    printf("total memory of gpu: %ul\n",totalMem);
+    printf( "total free memory of gpu before square allocation: %ul\n",freeMem);
+    */
+    cudaErrorCheck(cudaMalloc(&devicePixels, sizeof(double) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceSquarePixels, sizeof(double) * squareSideLength * squareSideLength));
+
+    /*
+    cudaMemGetInfo(&freeMem, &totalMem);
+    printf("total memory of gpu: %ul\n",totalMem);
+    printf( "total free memory of gpu after square allocation: %ul\n",freeMem);
+    */
+
+    cudaErrorCheck(cudaMemcpy(devicePixels, inputPixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
     
     dim3 blockShape(16, 16);
     dim3 gridShape(4, 4);
     //calling kernel
     getSquare<<<gridShape, blockShape>>>(devicePixels, deviceSquarePixels, squareSideLength, rowDim, colDim, pixelRow, pixelCol);
+    cudaError_t lastError = cudaGetLastError();
+    if (lastError != cudaSuccess) {
+        printf("error with get get square wrapper %s\n", cudaGetErrorString(lastError));
+    }
 
     //copying to host
-    cudaErrorCheck(cudaMemcpy(squarePixels, deviceSquarePixels, sizeof(int) * squareSideLength * squareSideLength, cudaMemcpyDeviceToHost));
+    cudaErrorCheck(cudaMemcpy(squarePixels, deviceSquarePixels, sizeof(double) * squareSideLength * squareSideLength, cudaMemcpyDeviceToHost));
 
     // freeing memory
     cudaErrorCheck(cudaFree(devicePixels));
@@ -304,22 +387,22 @@ void getSquareWrapper(int* inputPixels, int* squarePixels, int squareSideLength,
 }
 
 // gpu kernel to scale the input pixels to be normalized
-__global__ void pixelScale(int* inputPixels, double* outputValues, int rowDim, int colDim,double scalar) {
+__global__ void pixelScale(double* inputPixels, double* outputValues, int rowDim, int colDim,double scalar) {
     int maxDim = rowDim * colDim;
     for (int i = blockDim.x * blockIdx.x + threadIdx.x; i < maxDim; i += gridDim.x * blockDim.x) {
         // max value is 255, so we just divide the input pixel value by 255
         //outputValues[i] = ((double)(inputPixels[i])) / (255.0 * 62500.0);
-        outputValues[i] = ((double)(inputPixels[i])) / (scalar);
+        outputValues[i] = ((inputPixels[i])) / (scalar);
     }
 }
 
-void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int colDim, double scalar) {
-    int* deviceInputPixels;
+void pixelScaleWrapper(double* inputPixels, double* outputValues, int rowDim, int colDim, double scalar) {
+    double* deviceInputPixels;
     double* deviceOutputValues;
-    cudaErrorCheck(cudaMalloc(&deviceInputPixels, sizeof(int) * rowDim * colDim));
+    cudaErrorCheck(cudaMalloc(&deviceInputPixels, sizeof(double) * rowDim * colDim));
     cudaErrorCheck(cudaMalloc(&deviceOutputValues, sizeof(double) * rowDim * colDim));
     //copying memory
-    cudaErrorCheck(cudaMemcpy(deviceInputPixels, inputPixels, sizeof(int) * rowDim * colDim, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(deviceInputPixels, inputPixels, sizeof(double) * rowDim * colDim, cudaMemcpyHostToDevice));
     // calling kernel
     pixelScale << <20, 512 >> > (deviceInputPixels, deviceOutputValues, rowDim, colDim, scalar);
     cudaError_t lastError = cudaGetLastError();
@@ -335,5 +418,43 @@ void pixelScaleWrapper(int* inputPixels, double* outputValues, int rowDim, int c
 
 __global__ void addFeature(double* inputPixels, double* outputValues, int rowDim, int colDim, int featureNumber) {
 
+}
+
+//testing the get squares function
+// the idea is that we get the first 100 or so squares from a buffer and then verify that these are in fact correct with cpu code
+void getSquaresTest(double* data, int rowDim, int colDim, int numSquaresToCheck, int squareLength) {
+    double* gpuResult = (double*)malloc(sizeof(double) * squareLength * squareLength * numSquaresToCheck);
+    double* cpuResult = (double*)malloc(sizeof(double) * squareLength * squareLength * numSquaresToCheck);
+
+    getSquaresWrapper(data, gpuResult, squareLength, rowDim, colDim, numSquaresToCheck, 0);
+
+    // getting squares for cpu
+    for (int i = 0;i < numSquaresToCheck;i++) {
+        int row = i / colDim;
+        int col = i % colDim;
+        double* intermedSquare = (double*)malloc(sizeof(double) * squareLength * squareLength);
+        // filling square
+        getSquareCPU(data, intermedSquare, squareLength, rowDim, colDim, row, col);
+        // filling the cpuResult buffer
+        for (int j = 0;j < squareLength * squareLength; j++) {
+            cpuResult[(j * numSquaresToCheck) + i] = intermedSquare[j];
+        }
+        free(intermedSquare);
+    }
+
+    //asserting equality
+    for (int i = 0;i < squareLength * squareLength * numSquaresToCheck;i++) {
+        if (gpuResult[i] != cpuResult[i]) {
+            printf("VERY BAD ERROR WITH GRABBING SQUARES!!!! -> INCONSISTENT FOR MULTI-GRAB!\n");
+        }
+        /*
+        else {
+            printf("all gud!\n");
+        }
+        */
+    }
+
+    free(gpuResult);
+    free(cpuResult);
 }
 
